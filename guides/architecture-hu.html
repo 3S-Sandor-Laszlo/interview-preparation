@@ -1,0 +1,1429 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architektúra a kódszint fölött</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topbar" aria-label="Kézikönyvek">
+    <a class="home" href="../index.html">PHP kézikönyvek</a>
+    <ul>
+      <li><a href="php-hu.html">PHP OOP és PSR</a></li>
+      <li><a href="http-api-hu.html">HTTP és API</a></li>
+      <li><a href="auth-hu.html">Autentikáció</a></li>
+      <li><a href="architecture-hu.html" aria-current="page">Architektúra</a></li>
+    </ul>
+  </nav>
+
+  <header class="masthead">
+    <p class="eyebrow">Interjúfelkészülés · senior szint</p>
+    <h1>Architektúra a kódszint fölött</h1>
+    <p class="standfirst">Hexagonális, CQRS és event sourcing — mi is pontosan mindegyik, milyen PHP lesz belőle, és milyen költséget vállalsz vele. Plusz az, amit az interjú igazán mér: annak eldöntése, hogy egy adott rendszernek melyikre <em>nincs</em> szüksége, és hogy ezt meg is tudd indokolni.</p>
+    <div class="meta-row">
+      <span>A <b>PHP OOP és PSR</b> kézikönyv társdokumentuma</span>
+      <span>Naprakész: <b>2026. szeptember</b></span>
+      <span><b>16</b> téma</span>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <nav class="toc" aria-label="Tartalom">
+      <div class="filter">
+        <input id="filter" type="search" placeholder="Témák szűrése…" aria-label="Témák szűrése">
+      </div>
+      <h2>Határok</h2>
+      <ol>
+        <li><a href="#dependency-rule">Rétegek és a függőségi szabály</a></li>
+        <li><a href="#hexagonal">Portok és adapterek</a></li>
+        <li><a href="#application-layer">Az alkalmazásréteg</a></li>
+        <li><a href="#domain-model">Entitások, VO-k, aggregátumok</a></li>
+        <li><a href="#contexts">Bounded contextek</a></li>
+      </ol>
+      <h2>Minták</h2>
+      <ol>
+        <li><a href="#cqrs">CQRS pontosan</a></li>
+        <li><a href="#events">Domén- és integrációs események</a></li>
+        <li><a href="#outbox">Az outbox minta</a></li>
+        <li><a href="#event-sourcing">Event sourcing</a></li>
+        <li><a href="#sagas">Sagák és eventual consistency</a></li>
+      </ol>
+      <h2>PHP-kódbázisban</h2>
+      <ol>
+        <li><a href="#structure">Modulszerkezet</a></li>
+        <li><a href="#framework">A keretrendszer mint részlet</a></li>
+        <li><a href="#testing">Tesztelés rétegenként</a></li>
+      </ol>
+      <h2>Döntés</h2>
+      <ol>
+        <li><a href="#tradeoffs">Kompromisszumok és ADR-ek</a></li>
+        <li><a href="#migration">Strangler fig és ACL</a></li>
+        <li><a href="#rapid">Gyorstűz-csapdák</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <section class="part" id="boundaries">
+        <header>
+          <h2>Határok</h2>
+          <span class="count">5 téma</span>
+        </header>
+        <p class="part-intro">Az ezen az oldalon szereplő minden architektúra ugyanannak az egy gondolatnak más-más léptékű alkalmazása: húzz egy vonalat valahová, és szabályozd, milyen irányban léphetik át a függőségek. Ha a gondolatot érted, a nevesített mintákat nem kell bemagolni.</p>
+
+        <article class="topic" id="dependency-rule">
+          <h3>Rétegek és a függőségi szabály</h3>
+          <p>A rétegzett, a hexagonális, az onion és a clean architektúra ugyanannak a szabálynak négyféle rajza: <b>a forráskód-függőségek befelé mutatnak, a szabályok felé, sosem kifelé, a részletek felé</b>. A doménnek nem szabad tudnia, hogy létezik MySQL, HTTP vagy Symfony.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Név</th><th>Mit hangsúlyoz</th><th>Mit tesz hozzá</th></tr></thead>
+              <tbody>
+                <tr><td>Klasszikus rétegzett (n-tier)</td><td>Megjelenítés → üzleti logika → adat</td><td>Semmi nem akadályozza, hogy a felső réteg lenyúljon az aljára; a függőségek lefelé, az adatbázis felé mutatnak</td></tr>
+                <tr><td>Hexagonális (portok és adapterek)</td><td>Belül és kívül</td><td>Minden külső interakció explicit port, cserélhető adapterekkel</td></tr>
+                <tr><td>Onion</td><td>Koncentrikus gyűrűk a doménmodell körül</td><td>Nevet ad a gyűrűknek, és megtiltja, hogy a belső ismerje a külsőt</td></tr>
+                <tr><td>Clean</td><td>Használati esetek a középpontban</td><td>A függőségi szabályt szabályként mondja ki, plusz explicit határ-DTO-kat</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Az a mechanizmus, ami lehetővé teszi a befelé mutató függőséget akkor is, amikor a vezérlés kifelé folyik, a <b>függőséginverzió</b>: a domén deklarálja az interfészt, amire szüksége van, és az infrastruktúra megvalósítja. Ez az egyetlen mozdulat — hogy az interfész a <em>fogyasztójánál</em> lakik, nem a megvalósításánál — teszi a rétegzett alkalmazásból hexagonálissá.</p>
+          <pre class="code"><code class="language-php">// Domain/Repository/Orders.php — a domén deklarálja, rajta kívül valósul meg.
+namespace App\Domain\Order;
+
+interface Orders
+{
+    public function get(OrderId $id): Order;
+    public function save(Order $order): void;
+    public function nextIdentity(): OrderId;
+}</code></pre>
+          <pre class="code"><code class="language-php">// Infrastructure/Persistence/DoctrineOrders.php — ez ismeri a Doctrine-t; a domén sosem.
+namespace App\Infrastructure\Persistence;
+
+final class DoctrineOrders implements \App\Domain\Order\Orders
+{
+    public function __construct(private EntityManagerInterface $em) {}
+
+    public function get(OrderId $id): Order
+    {
+        return $this-&gt;em-&gt;find(Order::class, $id-&gt;toString())
+            ?? throw new OrderNotFound($id);
+    }
+}</code></pre>
+          <p class="asked"><b>Így kérdezik</b> — „Mi a különbség a hexagonális és a clean architektúra között?” Lényegében kevés — mindkettő a függőségi szabályt kényszeríti ki; a hexagonális a szimmetrikus portokat hangsúlyozza minden külső szereplőhöz, a clean a használati eseteket a középpontban. Aki azt mondja, hogy „lényegében ugyanaz a gondolat, és itt a közös szabály”, sokkal jobban hangzik annál, aki két ábrát felmond.</p>
+          <details class="quiz" id="quiz-dependency-rule"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Milyen egyetlen szabályon osztozik a rétegzett, a hexagonális, az onion és a clean architektúra?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-1" value="a"><span>A forráskód-függőségek befelé mutatnak, a szabályok felé, sosem kifelé, a részletek felé.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-1" value="b"><span>Az adatbázis áll a terv középpontjában.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-1" value="c"><span>Minden réteg önállóan deployolható.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-1" value="d"><span>Minden réteg csak a közvetlenül alatta lévőt hívhatja.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Négy rajz, egy szabály.</b> A doménnek nem szabad tudnia, hogy létezik MySQL, HTTP vagy Symfony. A klasszikus n-tier épp azért lóg ki, mert ott semmi nem akadályozza, hogy a függőségek lefelé, az adatbázis felé folyjanak.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">A vezérlés kifelé folyik — a doménnek mentenie kell valamit. Hogyan mutathat a függőség mégis befelé?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-2" value="a"><span>Úgy, hogy a repositoryt paraméterként adod át minden híváskor.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-2" value="b"><span>Függőséginverzióval: a domén deklarálja azt az interfészt, amire szüksége van, és az infrastruktúra valósítja meg.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-2" value="c"><span>Úgy, hogy az infrastruktúra-réteg a doménréteg leszármazottja lesz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-2" value="d"><span>Úgy, hogy kifelé hívás helyett eseményt küldesz.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az interfész a <em>fogyasztójánál</em> lakik, nem a megvalósítójánál.</b> Ez az egy lépés fordít egy rétegzett alkalmazást hexagonálissá, és ez a gépies válasz arra a kérdésre, amire a legtöbben egy ábrával felelnek.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi a különbség a hexagonális és a clean architektúra között?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-3" value="a"><span>A hexagonális monolitokhoz való, a clean mikroszolgáltatásokhoz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-3" value="b"><span>A hexagonális hat réteget enged, a clean négyet.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-3" value="c"><span>Lényegében nagyon kevés — mindkettő a függőségi szabályt kényszeríti ki; a hexagonális a szimmetrikus portokat hangsúlyozza minden külső szereplőre, a clean a use case-eket a középpontban és a kifejezett határ-DTO-kat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-3" value="d"><span>A clean architektúra teljesen tiltja a keretrendszereket.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A „lényegében ugyanaz a gondolat, és itt a szabály, amin osztoznak” sokkal jobban hangzik, mint két ábra felmondása.</b> A különbség hangsúly, nem lényeg.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="hexagonal">
+          <h3>Portok és adapterek a gyakorlatban</h3>
+          <p>A <b>port</b> egy interfész, aminek a belső oldal a gazdája. Az <b>adapter</b> valami valódihoz köti. Két irányban léteznek, és a kettő összekeverése a szokásos hiba.</p>
+          <div class="versus">
+            <div>
+              <h4>Vezérlő (elsődleges) adapterek</h4>
+              <ul>
+                <li>A külvilág hív <em>befelé</em></li>
+                <li>HTTP controller, CLI-parancs, sorfogyasztó, cron</li>
+                <li>Az alkalmazás use case interfészétől függenek</li>
+                <li>Teszteléskor egyszerűen közvetlenül a use case-t hívod</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Vezérelt (másodlagos) adapterek</h4>
+              <ul>
+                <li>A belső oldal hív <em>kifelé</em></li>
+                <li>Repository, mailer, fizetési átjáró, óra, eseménybusz</li>
+                <li>Egy belülről deklarált interfészt valósítanak meg</li>
+                <li>Teszteléskor memóriabeli hamisítvánnyal helyettesíted</li>
+              </ul>
+            </div>
+          </div>
+          <pre class="code"><code class="language-php">// Egy vezérelt port és két adapter — éles és teszt — egyetlen interfész mögött.
+interface PaymentGateway
+{
+    public function charge(Money $amount, CardToken $card): ChargeResult;
+}
+
+final class StripeGateway implements PaymentGateway { /* HTTP, újrapróbálkozás, leképezés */ }
+
+final class InMemoryGateway implements PaymentGateway     // a tests/ könyvtárban él
+{
+    public array $charges = [];
+    public function charge(Money $amount, CardToken $card): ChargeResult
+    {
+        $this-&gt;charges[] = $amount;
+        return ChargeResult::succeeded('ch_test_1');
+    }
+}</code></pre>
+          <div class="note"><b>Az igazi port ismertetőjele.</b> Ha nem tudsz értelmes memóriabeli implementációt írni az interfészhez, akkor az nem port — hanem az adatbázisod API-ja új néven. Egy repository-interfészen a <code>findByQueryBuilder(QueryBuilder $qb)</code> szivárgás: a domén ezzel a szignatúrán keresztül függ a Doctrine-tól.</div>
+          <p>Két portról szoktak megfeledkezni, amíg egy teszt el nem kezd villogni: az <b>óra</b> (<code>interface Clock { public function now(): DateTimeImmutable; }</code>) és az <b>azonosítógenerátor</b>. Mindkettő nemdeterminizmus, ami bejut a doménbe; mindkettő egysoros interfész, amitől az aggregátumtesztek reprodukálhatóvá válnak.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mit ad valójában a hexagonális architektúra?” Cserélhetőséget a széleken, és egy olyan domént, amit a keretrendszer indítása nélkül tudsz tesztelni. Az őszinte költséget — több interfész, több közvetettség, a definícióra ugrás interfészen landol — érdemes kimondani, mielőtt ők hoznák fel.</p>
+          <details class="quiz" id="quiz-hexagonal"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Mi a különbség egy vezérlő (driving) és egy vezérelt (driven) adapter között?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-1" value="a"><span>A vezérlő adaptereket teszteljük, a vezérelteket mockoljuk.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-1" value="b"><span>A vezérlő adapterek a doménben laknak, a vezéreltek az infrastruktúrában.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-1" value="c"><span>A vezérlő adapterek szinkronok, a vezéreltek aszinkronok.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-1" value="d"><span>A vezérlő adapter a kívülről befelé hívás (HTTP-controller, CLI, sorfogyasztó); a vezérelt adapter a belülről kifelé hívás (repository, mailer, átjáró), és egy olyan interfészt valósít meg, amit a belső oldal deklarált.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A két irány összekeverése a szokásos hiba.</b> A vezérlő oldal az alkalmazás use case-interfészétől függ; a vezérelt oldal egy olyan interfészt valósít meg, aminek az alkalmazás a gazdája. Csak a második függőséginverzió.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Miről ismered meg a valódi portot a szivárgótól?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-2" value="a"><span>Ha nem tudsz értelmes memóriabeli implementációt írni az interfészhez, akkor az nem port — hanem az adatbázisod API-ja új néven.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-2" value="b"><span>A portot <code>final</code>-nak kell deklarálni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-2" value="c"><span>A port soha nem ad vissza doménobjektumot.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-2" value="d"><span>A portnak ötnél kevesebb metódusa van.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A <code>findByQueryBuilder(QueryBuilder $qb)</code> a tankönyvi szivárgás</b> — a domén ettől a szignatúrán keresztül a Doctrine-tól függ. A memóriabeli fake próbája gyors, őszinte, és a legtöbbjüket elkapja review-ban.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mely két portról feledkezik meg mindenki, amíg egy teszt el nem kezd villódzni?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-3" value="a"><span>A loggerről és a cache-ről.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-3" value="b"><span>Az óráról és az azonosítógenerátorról.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-3" value="c"><span>Az eseménybuszról és a mailerről.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-3" value="d"><span>A repositoryról és a unit of workról.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Mindkettő nemdeterminizmus, ami beszivárog a doménbe</b>, és mindkettő egysoros interfész, amitől az aggregátumtesztek reprodukálhatóvá válnak. Az egésznek az őszinte ára — több interfész, több közvetettség, az interfészben landoló jump-to-definition — érdemes megnevezni, mielőtt az interjúztató felhozza.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="application-layer">
+          <h3>Az alkalmazásréteg: use case-ek, nem controllerek</h3>
+          <p>Az alkalmazásszolgáltatás (vagy command handler, vagy interactor) az a vékony réteg, ami koordinál: betölt egy aggregátumot, meghív rajta egy doménmetódust, perzisztál, eseményt küld. Saját üzleti szabálya nincs — ha van benne egy <code>if</code> pénzről, az a szabály a doménbe való.</p>
+          <pre class="code"><code class="language-php">final class RefundOrder                       // egy use case, egy osztály
+{
+    public function __construct(
+        private Orders $orders,               // domén-port
+        private PaymentGateway $payments,     // domén-port
+        private UnitOfWork $transaction,      // infrastruktúra, explicit módon
+        private EventDispatcher $events,      // PSR-14
+    ) {}
+
+    public function __invoke(RefundOrderCommand $command): void
+    {
+        $order = $this-&gt;orders-&gt;get(new OrderId($command-&gt;orderId));
+
+        // A szabály az aggregátumban él; a szolgáltatás csak sorba rendezi a lépéseket.
+        $refund = $order-&gt;refund(Money::fromMinor($command-&gt;amountMinor, $command-&gt;currency));
+
+        $this-&gt;transaction-&gt;wrap(function () use ($order, $refund) {
+            $this-&gt;payments-&gt;refund($refund);
+            $this-&gt;orders-&gt;save($order);
+        });
+
+        foreach ($order-&gt;releaseEvents() as $event) {
+            $this-&gt;events-&gt;dispatch($event);   // commit után — lásd az outbox témát
+        }
+    }
+}</code></pre>
+          <p>A controller ettől fordításra zsugorodik: HTTP be, parancsobjektum ki, eredményből válasz. Ettől lesz ugyanaz a use case elérhető egy CLI-parancsból, egy sorkezelő workerből és egy tesztből, duplikálás nélkül — és mivel ez az egész szerkezet gyakorlati haszna, ezzel kezdd, amikor a réteget magyarázod.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mi kerül a szolgáltatásba és mi az entitásba?” Koordináció és tranzakcióhatárok a szolgáltatásba; invariánsok és állapotátmenetek az entitásba. A kimondandó szag: az a szolgáltatás, ami kiolvassa az entitás mezőit, eldönt valamit, majd visszaírja — ez anémiás modell, kiszervezett logikával.</p>
+          <details class="quiz" id="quiz-application-layer"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi tartozik az alkalmazásszolgáltatásba, és mi az entitásba?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-1" value="a"><span>Minden az entitásba; a szolgáltatások keretrendszer-ragasztó.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-1" value="b"><span>A validáció a szolgáltatásba, a perzisztencia az entitásba.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-1" value="c"><span>A koordináció és a tranzakcióhatár a szolgáltatásba; az invariánsok és az állapotátmenetek az entitásba.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-1" value="d"><span>Minden a szolgáltatásba; az entitások adatok.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Tölts be egy aggregátumot, hívj rajta egy doménmetódust, perzisztálj, küldj eseményt.</b> Ha a szolgáltatásban van egy <code>if</code> a pénzről, az a szabály a doménbe való.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Milyen szaghibát érdemes kimondani ennek a rétegnek a leírásakor?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-2" value="a"><span>Egy szolgáltatást, ami entitás helyett DTO-t ad vissza.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-2" value="b"><span>Egy szolgáltatást, ami saját tranzakciót indít.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-2" value="c"><span>Egy szolgáltatást, aminek háromnál több együttműködője van.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-2" value="d"><span>Egy szolgáltatást, ami kiolvassa egy entitás tulajdonságait, eldönt valamit, és visszaírja — ez anémiás modell kiszorult logikával.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A viselkedés azon az objektumon kívülre került, amelyiké az adat.</b> Ez az anémiás doménmodell a gyakorlatban, és az alak leírása meggyőzőbb, mint az antiminta megnevezése.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi a gyakorlati haszna annak, hogy a use case kikerül a controllerből?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-3" value="a"><span>Ugyanaz a use case elérhetővé válik CLI-parancsból, sorfeldolgozó workerből és tesztből, duplikáció nélkül — a controller pedig fordítássá zsugorodik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-3" value="b"><span>A keretrendszer autowire-olni tudja a controllert.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-3" value="c"><span>A szolgáltatásréteg cache-elhetővé válik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-3" value="d"><span>A controller könnyebben unit-tesztelhető lesz.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ezzel kezdd a réteg magyarázatát.</b> HTTP be, parancsobjektum ki, eredmény válasszá — minden más ott lakik, ahol mind a három belépési pont eléri.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="domain-model">
+          <h3>Entitások, értékobjektumok, aggregátumok</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Építőelem</th><th>Identitás</th><th>Módosíthatóság</th><th>Példa</th></tr></thead>
+              <tbody>
+                <tr><td>Értékobjektum (VO)</td><td>Nincs — érték szerint egyenlő</td><td>Immutábilis</td><td><code>Money</code>, <code>Email</code>, <code>DateRange</code></td></tr>
+                <tr><td>Entitás</td><td>Van azonosítója; az alapján egyenlő</td><td>Idővel változik</td><td><code>Order</code>, <code>Customer</code></td></tr>
+                <tr><td>Aggregátum</td><td>Klaszter egyetlen gyökérentitással</td><td>Csak a gyökéren keresztül módosul</td><td><code>Order</code> és a hozzá tartozó <code>OrderLine</code>-ok</td></tr>
+                <tr><td>Doménszolgáltatás</td><td>Állapotmentes</td><td>—</td><td>Több aggregátumot átfogó szabály</td></tr>
+                <tr><td>Repository</td><td>—</td><td>—</td><td>Gyűjteményszerű hozzáférés, <b>csak aggregátumgyökerekhez</b></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <pre class="code"><code class="language-php">final class Order                       // aggregátumgyökér
+{
+    private array $lines = [];
+    private array $events = [];
+
+    public function addLine(ProductId $product, int $quantity, Money $unitPrice): void
+    {
+        if ($this-&gt;status !== OrderStatus::Draft) {
+            throw new OrderNotEditable($this-&gt;id);      // az invariáns, itt kikényszerítve
+        }
+        if ($quantity &lt; 1) {
+            throw new InvalidQuantity($quantity);
+        }
+
+        $this-&gt;lines[] = new OrderLine($product, $quantity, $unitPrice);
+        $this-&gt;events[] = new LineAdded($this-&gt;id, $product, $quantity);
+    }
+
+    /** Nincs setter, nincs publikus gyűjtemény. A hívó nem kerülheti meg a fenti szabályokat. */
+    public function lines(): array { return $this-&gt;lines; }
+}</code></pre>
+          <p>Az aggregátumhatár <b>konzisztenciahatár</b>: ami belül van, az egy tranzakcióban mentődik és mindig érvényes; ami kívül, az azonosítón keresztül érhető el, és csak eventually lesz konzisztens. Ebből jön a méretezési heurisztika: tartsd kicsin az aggregátumokat, más aggregátumra azonosítóval hivatkozz, ne objektummal, és ha egy szabály két aggregátumon ível át, akkor vagy egy aggregátum a kettő, vagy a szabály eventually consistent. Egy <code>Order</code>, ami egy teljes <code>Customer</code> objektumot tart, a klasszikus túlméretezett aggregátum.</p>
+          <div class="note"><b>Anémiás doménmodell.</b> Olyan entitások, amik getterekkel és setterekkel felszerelt adatzsákok, és minden viselkedés szolgáltatásokban van. Fowler azért nevezte antimintának, mert egy objektummodell költségét fizeted ki, és semmit nem kapsz cserébe belőle. Ugyanakkor ez a legtöbb keretrendszer-tutorial alapértelmezett alakja, tehát számíts rá, hogy megkérdezik, megtartanád-e — az „igen egy CRUD adminfelületen, nem az árazómotorban” jobb válasz, mint bármelyik irányba tett dogma.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan döntöd el, hol van az aggregátumhatár?” Tranzakciós invariáns alapján: minek kell igaznak lennie minden commitnál. Ha két dolog rövid ideig inkonzisztens lehet anélkül, hogy az üzletet elrontaná, akkor különböző aggregátumokhoz tartoznak, és eseményeken keresztül beszélnek.</p>
+          <details class="quiz" id="quiz-domain-model"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Hogyan döntöd el, hol legyen az aggregátumhatár?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-1" value="a"><span>A táblák kapcsolatai alapján.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-1" value="b"><span>Tranzakciós invariáns alapján: minek kell igaznak lennie minden commitnál. Ami belül van, egy tranzakcióban mentődik és mindig érvényes; ami kívül, azonosítón keresztül érhető el, és eventually lesz konzisztens.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-1" value="c"><span>Az alapján, mit kell tartalmaznia az API-válasznak.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-1" value="d"><span>Úgy, hogy minden aggregátum fix számú entitás alatt maradjon.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az aggregátumhatár konzisztenciahatár.</b> Ebből a méretezési ökölszabály közvetlenül adódik: tartsd kicsin az aggregátumokat, hivatkozz a többire azonosítóval, és ha egy szabály kettőn ível át, akkor vagy egy aggregátum a kettő, vagy a szabály eventually konzisztens.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi különbözteti meg az értékobjektumot az entitástól?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-2" value="a"><span>Az entitás perzisztálódik, az értékobjektum nem.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-2" value="b"><span>Az értékobjektum immutábilis, az entitás nem.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-2" value="c"><span>Az értékobjektumnak nincs azonossága, és érték szerint egyenlő; az entitásnak van azonosítója, azonosító szerint egyenlő, és idővel változik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-2" value="d"><span>Az értékobjektum nem tartalmazhat más objektumot.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az azonosság a választóvonal, és az immutabilitás ebből következik.</b> A <code>Money</code>, az <code>Email</code> és a <code>DateRange</code> érték; az <code>Order</code> és a <code>Customer</code> entitás. A repository gyűjtemény-szerű hozzáférést ad, kizárólag aggregátum<em>gyökerekhez</em>.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Megtartanál egy anémiás doménmodellt?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-3" value="a"><span>Csak akkor, ha az entitások immutábilisak.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-3" value="b"><span>Soha — Fowler antimintának nevezte.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-3" value="c"><span>Mindig — minden keretrendszer-tutorial ezt tanítja.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-3" value="d"><span>Attól függ: egy CRUD admin felületnél igen, az árazómotornál nem.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A dogma mindkét irányban gyenge válasz.</b> A kritika valós — az objektummodell költségét fizeted, a hasznát nem kapod meg —, de egy hat mezőt szerkesztő képernyőnek nem kell gazdag modell, és épp az a lényeg, hogy megmondod, melyik melyik.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="contexts">
+          <h3>Bounded contextek és a moduláris monolit</h3>
+          <p>A bounded context (határolt kontextus) az a hatókör, amin belül egy fogalomnak egy jelentése van. A számlázás „ügyfele” (fizető fél adószámmal) nem ugyanaz, mint a support „ügyfele” (személy, akinek ticketjei vannak). Ha mindkettőre egy közös <code>Customer</code> osztályt erőltetsz, attól válik a modell karbantarthatatlanná.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Kapcsolat</th><th>Jelentés</th></tr></thead>
+              <tbody>
+                <tr><td>Shared kernel</td><td>Két kontextus szándékosan oszt meg egy kis modellt. Olcsó, és összeköti a kiadási ciklusokat</td></tr>
+                <tr><td>Customer / supplier</td><td>A lefelé lévő igényei befolyásolják a felfelé lévő tervét</td></tr>
+                <tr><td>Conformist</td><td>A lefelé lévő úgy fogadja el a felfelé lévő modelljét, ahogy van — nincs fordítási keret</td></tr>
+                <tr><td>Anti-corruption layer</td><td>A lefelé lévő a határon fordít, hogy a saját modelljét tisztán tartsa</td></tr>
+                <tr><td>Published language</td><td>Közös, verziózott csereformátum — események, API-séma</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="versus">
+            <div>
+              <h4>Moduláris monolit</h4>
+              <ul>
+                <li>Egy deploy-egység, kemény modulhatárokkal belül</li>
+                <li>Folyamaton belüli hívások: nincsenek hálózati hibamódok</li>
+                <li>Modulok közti tranzakció továbbra is lehetséges — és ez a kísértés</li>
+                <li>Egy határ átszabása átnevezés, nem migráció</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Mikroszolgáltatások</h4>
+              <ul>
+                <li>Független deploy, skálázás és technológiaválasztás</li>
+                <li>Minden hívás hibázhat, lassulhat vagy kétszer érkezhet</li>
+                <li>Nincs szolgáltatásokon átívelő tranzakció — sagák és eventual consistency</li>
+                <li>Kell hozzá az üzemeltetési érettség: tracing, szerződések, CI/CD</li>
+              </ul>
+            </div>
+          </div>
+          <p>A védhető alapértelmezés 2026-ban, és amit a legtöbb interjúztató hallani remél: kezdd moduláris monolitként, olyan határokkal, amiket tényleg kikényszerítesz (eszközzel, nem fegyelemmel), és akkor emelj ki egy szolgáltatást, amikor konkrét nyomás van rá — független skálázás, más futtatókörnyezet, vagy csapatautonómia olyan méretnél, ahol a közös kódbázis a szűk keresztmetszet. Az elosztott rendszer olyan költség, amit legalább annyiszor fizetsz ki szervezeti, mint technikai okból.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mikroszolgáltatásokat használnál itt?” Kérdezz vissza, milyen nyomás indokolná, aztán válaszolj. A „még nem — moduláris monolit kikényszerített határokkal, és itt az a seam, amit elsőként emelnék ki, ha X bekövetkezik” senior válasz. Az „igen, a mikroszolgáltatások jobban skálázódnak” nem.</p>
+          <details class="quiz" id="quiz-contexts"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi az a bounded context?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-1" value="a"><span>Az a hatókör, amin belül egy fogalomnak egy jelentése van — a számlázás „ügyfele” nem a support „ügyfele”.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-1" value="b"><span>Tranzakcióhatár szolgáltatások között.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-1" value="c"><span>Az egy modul birtokolta táblák halmaza.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-1" value="d"><span>Egy névtér az alkalmazáson belül.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ha mindkettőre ráerőltetsz egy közös <code>Customer</code> osztályt, onnantól lesznek karbantarthatatlanok a modellek.</b> A kontextusok közti viszonyminták — shared kernel, konformista, anti-corruption layer, published language — arról szólnak, mennyi fordítást vagy hajlandó megfizetni.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mit tart meg a moduláris monolit abból, amit a mikroszolgáltatások feladnak?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-2" value="a"><span>A független deployt.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-2" value="b"><span>A folyamaton belüli hívásokat hálózati hibamódok nélkül, a modulokon átívelő tranzakciókat, és azt, hogy egy határ áttervezése átnevezés, nem migráció.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-2" value="c"><span>A modulonkénti technológiaválasztást.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-2" value="d"><span>A független skálázást.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A modulokon átívelő tranzakció egyben a kísértés is</b> — pont az, ami csendben erodálja a meghúzott határt. Ezért kell a határokat eszközzel kikényszeríteni, nem fegyelemmel.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi a védhető alapértelmezés 2026-ban?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-3" value="a"><span>Use case-enként serverless függvények.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-3" value="b"><span>Mikroszolgáltatások az elejétől, hogy a határok fizikaiak legyenek.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-3" value="c"><span>Indulj moduláris monolitként, ténylegesen kikényszerített határokkal, és akkor emelj ki szolgáltatást, ha van konkrét nyomás: független skálázás, más futtatókörnyezet vagy csapatautonómia egy adott méret fölött.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-3" value="d"><span>Monolit belső modulok nélkül, később refaktorálva.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A kiemelésnek megnevezhető nyomásra kell válaszolnia.</b> A mikroszolgáltatások ráadásul megkövetelik a hozzájuk illő üzemeltetési érettséget — tracing, szerződések, CI/CD —, és a legtöbb „majd szétszedjük” terv épp ezt a költséget hagyja ki.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="patterns">
+        <header>
+          <h2>Minták</h2>
+          <span class="count">5 téma</span>
+        </header>
+        <p class="part-intro">Ez az a három betűszó, amire az álláshirdetés gondolt, plusz az a két mechanizmus, amitől élesben túlélhetők. Mindegyik valóban hasznos és valóban drága; az interjú azt méri, ismered-e mindkét felét.</p>
+
+        <article class="topic" id="cqrs">
+          <h3>CQRS pontosan</h3>
+          <p>Command Query Responsibility Segregation: <b>különböző modell</b> az íráshoz és az olvasáshoz. Ennyit mond. Nem követel event sourcingot, két adatbázist, üzenetbuszt vagy eventual consistencyt — ezek olyan lehetőségek, amiket megnyit.</p>
+          <div class="versus">
+            <div>
+              <h4>Írási modell</h4>
+              <ul>
+                <li>Aggregátumok, invariánsok, normalizált</li>
+                <li>Azonosító alapján töltődik, sosem listákhoz kérdezed</li>
+                <li>Helyességre optimalizált</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Olvasási modell</h4>
+              <ul>
+                <li>Lapos DTO-k a képernyő alakjára szabva</li>
+                <li>Sima SQL, joinok, nincsenek entitások</li>
+                <li>A lekérdezésre optimalizált, szabadon denormalizálva</li>
+              </ul>
+            </div>
+          </div>
+          <pre class="code"><code class="language-php">// Olvasási oldal: nincs ORM, nincsenek doménobjektumok, csak az az alak, ami az oldalnak kell.
+final class OrderSummaryQuery
+{
+    public function __construct(private PDO $db) {}
+
+    /** @return list&lt;OrderSummary&gt; */
+    public function forCustomer(string $customerId, int $limit): array
+    {
+        $stmt = $this-&gt;db-&gt;prepare(
+            'SELECT o.id, o.status, o.total_minor, o.currency, c.name AS customer_name,
+                    COUNT(l.id) AS line_count
+             FROM orders o
+             JOIN customers c ON c.id = o.customer_id
+             LEFT JOIN order_lines l ON l.order_id = o.id
+             WHERE o.customer_id = :customer
+             GROUP BY o.id
+             ORDER BY o.created_at DESC
+             LIMIT :limit'
+        );
+        // ... végrehajtás, majd a sorok leképezése readonly DTO-kra.
+    }
+}</code></pre>
+          <p>A CQRS legolcsóbb hasznos változata pontosan ez: az írásokhoz marad a Doctrine, az olvasásokhoz leszállsz SQL-be, és nem próbálod ugyanazt az entitásgráfot mindkettőre ráhúzni. Nulla extra infrastruktúra, a haszon nagy része megvan. A drága változat — külön olvasási tár, amit események tartanak naprakészen — független skálázást és olyan lekérdezési alakokat ad, amiket az írási tár nem tud kiszolgálni, cserébe eventual consistencyt és egy karbantartandó projekciót kapsz. Használati esetenként vezesd be, sose egyben.</p>
+          <div class="note"><b>„Lássam a saját írásomat.”</b> Amint az olvasási modell aszinkron, az a felhasználó, aki ment, majd átirányítódik egy listára, lehet, hogy nem látja a változását. Kezeld tudatosan: a parancs után olvass az írási modellből, add vissza a létrehozott erőforrást a válaszban, vagy tedd optimistává a felületet. A „a projekció általában gyors” nem terv.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Mi az a CQRS, és mikor használnád?” Külön modell olvasásra és írásra; akkor, ha a kettőnek tényleg más az alakja vagy a terhelési profilja. Mondd ki kifejezetten, hogy nem jelent két adatbázist — általában pontosan ezt a különbségtételt ellenőrzik.</p>
+          <details class="quiz" id="quiz-cqrs"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Mit követel meg valójában a CQRS?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-1" value="a"><span>Eventual consistencyt a parancs- és a lekérdezésoldal között.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-1" value="b"><span>Két adatbázist, üzenetbusszal szinkronban tartva.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-1" value="c"><span>Event sourcingot írásmodellként.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-1" value="d"><span>Különböző modellt az íráshoz és az olvasáshoz. Semmi mást — a külön tár, a busz és az eventual consistency csak lehetőségek, amiket megnyit.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ennyi a teljes definíció.</b> Ha ezt kimondod, majd megnevezed, mit <em>tesz lehetővé</em>, az különbözteti meg azt, aki használta, attól, aki olvasott róla.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi a CQRS legolcsóbb hasznos változata?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-2" value="a"><span>Maradjon az ORM az írásokra, az olvasásokhoz ejts sima SQL-re lapos DTO-kkal, és hagyd abba, hogy egyetlen entitásgráffal akarod mindkettőt kiszolgálni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-2" value="b"><span>Minden entitást duplikálni egy olvasó entitásba.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-2" value="c"><span>Egy GraphQL-réteg az írásmodell fölé.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-2" value="d"><span>Egy olvasó replika az adatbázisból minden lekérdezéshez.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Semmi plusz infrastruktúra, a haszon nagy része.</b> A drága változat — események által karbantartott külön olvasótár — független skálázást és olyan lekérdezési alakokat vesz, amiket az írástár nem tud kiszolgálni, és eventual consistencyvel meg egy karbantartandó projekcióval fizet. Use case-enként vezesd be, soha nem egyben.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Az olvasómodell aszinkron, a felhasználó ment, majd egy listára irányítod. Mit kell a tervnek kimondania?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-3" value="a"><span>„A projekció általában gyors.”</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-3" value="b"><span>Valami szándékosat: a parancs után közvetlenül az írásmodellből olvasol, visszaadod a létrehozott erőforrást a válaszban, vagy optimistává teszed a felületet.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-3" value="c"><span>Az átirányítást blokkolod, amíg a projekció utolér.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-3" value="d"><span>Kikapcsolod a cache-elést a listavégponton.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A saját írásod visszaolvasása követelmény, nem peremeset.</b> Bármelyiket választod, valakinek jóvá kell hagynia, hogy egy képernyő elavult lehet — az eventual consistency terméki döntés, nem implementációs részlet.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="events">
+          <h3>Doménesemények vs integrációs események</h3>
+          <div class="versus">
+            <div>
+              <h4>Doménesemény</h4>
+              <ul>
+                <li>Valami jelentős történt <em>ezen</em> a kontextuson belül</li>
+                <li>Múlt időben nevezve: <code>OrderRefunded</code></li>
+                <li>Doméntípusokat visz, folyamaton belül</li>
+                <li>Belső — szabadon változhat a modellel</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Integrációs esemény</h4>
+              <ul>
+                <li>Egy határon <em>át</em> publikálva</li>
+                <li>Szerializált, verziózott, nyilvános szerződés része</li>
+                <li>Csak primitív mezők — nincsenek doménobjektumok</li>
+                <li>Ha eltöröd, más csapatokat törsz el</li>
+              </ul>
+            </div>
+          </div>
+          <pre class="code"><code class="language-php">// Doménesemény: az aggregátum rögzíti, sikeres mentés után engedjük el.
+final readonly class OrderRefunded
+{
+    public function __construct(
+        public OrderId $orderId,
+        public Money $amount,
+        public DateTimeImmutable $occurredAt,
+    ) {}
+}
+
+// Integrációs esemény: a lefordított, verziózott alak, ami elhagyja a modult.
+final readonly class OrderRefundedV1
+{
+    public function __construct(
+        public string $eventId,        // a fogyasztóoldali idempotenciához
+        public string $orderId,
+        public int $amountMinor,
+        public string $currency,
+        public string $occurredAt,     // RFC 3339
+    ) {}
+}</code></pre>
+          <p>Szabályok, amiktől az eseményvezérelt rendszer nem rohad el: az esemény múltbeli tény, tehát a kezelő nem vétózhatja meg (arra való a parancs); csak a tranzakció commitja után publikálj, különben olyan visszatérítést hirdetsz ki, amit visszagörgettek; a fogyasztóknak <b>idempotensnek</b> kell lenniük, mert minden valódi broker legalább-egyszer kézbesít; és sose feltételezz sorrendet folyamok között. Az integrációs eseményeket additívan verziózd — adj hozzá opcionális mezőket, sose értelmezz újra egyet —, pontosan úgy, ahogy egy API-választ.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Miért nem hívjuk meg egyszerűen közvetlenül a másik szolgáltatást?” Csatolás és rendelkezésre állás: egy szinkron hívás elbukik, ha a hívott áll, és rákényszerít, hogy tudd, kit érdekel az esemény. A költségre is legyen válaszod — olyan folyamat hibakeresése, amit nem tudsz fentről lefelé elolvasni; erre való az elosztott tracing és egy jól elnevezett eseménynapló.</p>
+          <details class="quiz" id="quiz-events"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi a különbség egy doménesemény és egy integrációs esemény között?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-events-1" value="a"><span>Az integrációs esemény egy másik szolgáltatásnak küldött parancs.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-1" value="b"><span>A doménesemények szinkronok, az integrációsak aszinkronok.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-1" value="c"><span>A doménesemény egy kontextuson belüli, doméntípusokat hordoz, és szabadon változhat a modellel; az integrációs esemény határon lép át, csak primitív mezőkkel szerializálódik, és verziózott publikus szerződés.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-1" value="d"><span>A doméneseményeket perzisztáljuk, az integrációsakat nem.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A megkülönböztetés arról szól, ki függhet tőle.</b> Ha egy doménobjektum kiszivárog egy publikált eseménybe, onnantól minden fogyasztó a belső modelledtől függ — és ha eltöröd, más csapatok törnek el.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Miért nem vétózhatja meg egy eseménykezelő azt, ami megtörtént?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-events-2" value="a"><span>Mert a broker nem támogatja a negatív nyugtázást.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-2" value="b"><span>Mert a kezelők párhuzamosan futnak.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-2" value="c"><span>Mert a kezelők a válasz elküldése után futnak.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-2" value="d"><span>Mert az esemény múltbeli tény — ha valamit engedélyezni vagy elutasítani kell, az parancs, nem esemény.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A múlt idő nem elnevezési konvenció, hanem szemantika.</b> Az <code>OrderRefunded</code> már megtörtént. A szomszédos szabály: csak a tranzakció commitja után publikálj, különben olyan visszatérítést jelentesz be, ami visszagördült.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Miért kell a fogyasztóknak idempotensnek lenniük?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-events-3" value="a"><span>Mert minden valódi broker at-least-once, tehát az újrakézbesítés normális, nem kivételes.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-3" value="b"><span>Mert a publikáló újrapróbálhatja a tranzakciót.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-3" value="c"><span>Mert a kezelők párhuzamosan futhatnak több workeren.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-3" value="d"><span>Mert az események sorrenden kívül érkezhetnek.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az at-least-once az alapértelmezés, amire tervezel.</b> Emellett soha ne feltételezz sorrendet streamek között, és az integrációs eseményeket additívan verziózd — új opcionális mező mehet, meglévő újrahasznosítása nem —, pontosan úgy, ahogy egy API-választ.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="outbox">
+          <h3>Az outbox minta</h3>
+          <p>Írnod kell az adatbázisba <em>és</em> publikálnod kell egy üzenetet. Két rendszer, közös tranzakció nélkül — tehát bármelyik sikerülhet egyedül. Naivan megcsinálva ez a dual-write probléma, és olyan rendelések lesznek belőle, amikről nincs értesítés, vagy értesítések olyan rendelésekről, amik nem léteznek.</p>
+          <pre class="code"><code class="language-php">// Ugyanabban a tranzakcióban, mint az üzleti változás: a broker még nincs a képben.
+$this-&gt;transaction-&gt;wrap(function () use ($order) {
+    $this-&gt;orders-&gt;save($order);
+
+    foreach ($order-&gt;releaseEvents() as $event) {
+        $this-&gt;outbox-&gt;add(new OutboxMessage(
+            id: Uuid::v7(),
+            topic: 'orders.refunded.v1',
+            payload: $this-&gt;serializer-&gt;serialize($event),
+            createdAt: $this-&gt;clock-&gt;now(),
+        ));
+    }
+});
+
+// Egy külön worker olvassa (vagy a binlogot követi) és publikál. Összeomlásbiztos:
+// a sor csak a broker nyugtázása után lesz elküldöttnek jelölve, tehát a hibamód
+// a duplikált publikálás - ezért kell a fogyasztóknak idempotensnek lenniük.</code></pre>
+          <p>Ugyanennek a garanciának a fogyasztóoldali párja az <b>inbox</b>: minden feldolgozott <code>eventId</code>-t rögzítesz egy egyedi indexes táblában, ugyanabban a tranzakcióban, mint a mellékhatást. Az újraküldött üzenet így az egyediségsértésbe fut és kimarad. A kettő együtt gyakorlatilag pontosan-egyszeri feldolgozást ad a legalább-egyszeri kézbesítés fölött — ezt a megfogalmazást használd, mert „pontosan egyszeri kézbesítés” nem létezik, és az interjúztatók szeretik, ha ezt valaki kimondja.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan tartod konzisztensen az adatbázist és az üzenetbrokert?” Tranzakciós outbox plusz idempotens fogyasztó. Attól ül le a válasz, hogy a megoldás előtt megnevezed a dual-write problémát.</p>
+          <details class="quiz" id="quiz-outbox"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mi a dual-write probléma?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-1" value="a"><span>Két szolgáltatás ugyanabba a táblába ír.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-1" value="b"><span>Írnod kell az adatbázisba és publikálnod kell egy üzenetet, közös tranzakció nélkül — így bármelyik sikerülhet egyedül, és lesznek értesítés nélküli rendelések vagy nem létező rendelésekhez tartozó értesítések.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-1" value="c"><span>Egy írás újrapróbálkozás után kétszer alkalmazódik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-1" value="d"><span>Két kliens egyszerre módosítja ugyanazt az aggregátumot.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A probléma megnevezése a megoldás előtt az, amitől a válasz üt.</b> Az outbox úgy javítja, hogy az üzenetet ugyanabba az adatbázis-tranzakcióba írja, mint az állapotváltozást, és utána abból a táblából publikál.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi az outbox fogyasztóoldali párja?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-2" value="a"><span>Nyugtázási időkorlát.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-2" value="b"><span>Egy dead letter queue.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-2" value="c"><span>Egy inbox: minden feldolgozott esemény azonosítóját egyedi indexszel ellátott táblába írod, ugyanabban a tranzakcióban, mint a mellékhatást, így az újrakézbesítés az egyediség-sértésbe fut és kimarad.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-2" value="d"><span>Üzenet-deduplikációs ablak a brokerben.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Outbox kifelé, inbox befelé.</b> Együtt effectively-once <em>feldolgozást</em> adnak az at-least-once <em>kézbesítés</em> tetején.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Miért rossz kifejezés az „exactly-once delivery”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-3" value="a"><span>Csak szinkron hívásokra vonatkozik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-3" value="b"><span>Kétfázisú commitot igényel, ami PHP-ban nem érhető el.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-3" value="c"><span>Helyes, de csak tranzakciós brokerrel.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-3" value="d"><span>Nem létezik — a kézbesítés at-least-once, és amit építeni tudsz, az effectively-once feldolgozás idempotens fogyasztókkal.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az interjúztatók szeretik, ha ezt kimondják.</b> A garancia a fogyasztóban lakik, nem a szállításban, és minden terv, ami mást feltételez, rejt egy felfedezetlen duplikált feldolgozási hibát.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="event-sourcing">
+          <h3>Event sourcing</h3>
+          <p>Az igazság forrása az események sorozata; az aktuális állapot ennek a sorozatnak az összehajtogatása. Nem ugyanaz, mint a CQRS, bár természetesen párosodnak, hiszen egy eseménytár rossz hely lekérdezésre.</p>
+          <pre class="code"><code class="language-php">final class Order
+{
+    private array $pending = [];
+    private int $version = 0;
+
+    public static function reconstitute(iterable $history): self
+    {
+        $order = new self();
+        foreach ($history as $event) {
+            $order-&gt;apply($event);      // visszajátszáskor nincs validáció: a történelem tény
+            $order-&gt;version++;
+        }
+        return $order;
+    }
+
+    public function refund(Money $amount): void
+    {
+        if ($amount-&gt;greaterThan($this-&gt;refundable())) {
+            throw new RefundExceedsBalance();     // a döntések validálnak...
+        }
+        $this-&gt;recordThat(new OrderRefunded($this-&gt;id, $amount, $this-&gt;clock-&gt;now()));
+    }
+
+    private function apply(object $event): void   // ...az alkalmazás csak állapotot módosít
+    {
+        match (true) {
+            $event instanceof OrderRefunded =&gt; $this-&gt;refunded = $this-&gt;refunded-&gt;plus($event-&gt;amount),
+            $event instanceof OrderPlaced   =&gt; $this-&gt;total = $event-&gt;total,
+        };
+    }
+}</code></pre>
+          <div class="versus">
+            <div>
+              <h4>Amit ad</h4>
+              <ul>
+                <li>Teljes, megkerülhetetlen auditnyom</li>
+                <li>Időutazás: állapot bármely pillanatra</li>
+                <li>Új projekciók <em>történelmi</em> adatokon</li>
+                <li>Üzleti kérdések utólag is megválaszolhatók</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Amibe kerül</h4>
+              <ul>
+                <li>Eseményséma-verziózás, örökre — a múltat nem tudod elmigrálni</li>
+                <li>Pillanatképek, amint a folyamok hosszúra nőnek</li>
+                <li>Eventual consistency minden olvasásban</li>
+                <li>GDPR-törlés egy csak hozzáfűzhető táron (crypto-shredding)</li>
+                <li>Egy csapat, aminek előbb meg kell tanulnia, hogy hibát tudjon keresni benne</li>
+              </ul>
+            </div>
+          </div>
+          <p>A párhuzamosságot a várt verzióval való hozzáfűzés kezeli — az eseménytár elutasítja az írást, ha a folyam elmozdult, ami megint optimista zárolás. Ott használd, ahol a napló <em>maga</em> az üzleti érték: főkönyvek, fizetések, megfelelőség-nehéz folyamatok, bármi, ahol a „miért ennyi az egyenleg” kérdésre válaszolni kell. Egy CRUD adminfelülethez ne használd; az a valaha épített legdrágább audittábla.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mikor <em>nem</em> használnál event sourcingot?” Legyen kéznél konkrét válasz: ha a doménnek nincs érdekes története, ha a csapat nem tudja üzemeltetni, vagy ha a GDPR-törlési követelmények miatt a csak hozzáfűzhető napló kockázat. Egy általad értett minta <em>ellen</em> érvelni ebben az egész részben a legerősebb jelzés.</p>
+          <details class="quiz" id="quiz-event-sourcing"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi az event sourcing?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-1" value="a"><span>Az események sorozatának tárolása az igazság forrásaként, az aktuális állapotot pedig ennek összehajtogatásából származtatva.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-1" value="b"><span>Egy audit tábla vezetése az entitástáblák mellett.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-1" value="c"><span>CQRS üzenetbrokerrel.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-1" value="d"><span>Esemény publikálása minden állapotváltozáskor.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Nem ugyanaz, mint a CQRS</b>, bár természetesen párosodnak — az eseménytár rossz hely lekérdezni, így rendszerint jön mellé egy olvasómodell.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Hogyan kezelődik a párhuzamosság egy eseménytárban?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-2" value="a"><span>Sorzárral a streamen.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-2" value="b"><span>Elvárt verzióval való hozzáfűzéssel: a tár elutasítja az írást, ha a stream közben elmozdult — ez megint optimista zárolás.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-2" value="c"><span>Az összes írás egyetlen folyamaton át sorosításával.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-2" value="d"><span>Időbélyeg szerinti last-write-wins alapon.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ugyanaz a minta, mint egy <code>ETag</code> vagy egy verzióoszlop</b>, egy szinttel lejjebb. A hosszú streamekhez aztán snapshot kell, hogy az állapot felépítése ne játssza vissza mindig a legelejétől.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mikor <em>ne</em> használj event sourcingot?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-3" value="a"><span>Ha már használsz CQRS-t.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-3" value="b"><span>Ha a rendszernek egynél több írója van.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-3" value="c"><span>Ha a doménnek nincs érdekes története, ha a csapat nem tudja fenntartani, vagy ha a GDPR-törlési követelmények kockázattá teszik a csak hozzáfűző naplót.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-3" value="d"><span>Ha nagy az adatmennyiség.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Egy általad értett minta ellen érvelni ennek a fejezetnek a legerősebb jelzése.</b> Egy CRUD admin felületen a valaha épített legdrágább audit tábla; egy főkönyvben maga az üzleti érték.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="sagas">
+          <h3>Sagák, folyamatmenedzserek, eventual consistency</h3>
+          <p>Egy több szolgáltatáson átívelő üzleti tranzakció nem lehet adatbázis-tranzakció. A saga lokális tranzakciókra bontja, mindegyikhez egy <b>kompenzáló művelettel</b> a visszagörgetéshez — mert egy terhelést nem tudsz meg nem történtté tenni, csak visszatéríteni.</p>
+          <div class="versus">
+            <div>
+              <h4>Koreográfia</h4>
+              <ul>
+                <li>Minden szolgáltatás eseményekre reagál, nincs koordinátor</li>
+                <li>Lazán csatolt, könnyű elkezdeni</li>
+                <li>Nincs egyetlen hely, ahol a folyamat látszik</li>
+                <li>Körök és meglepetések, ahogy a folyamat nő</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Orkesztráció</h4>
+              <ul>
+                <li>Egy folyamatmenedzser tartja az állapotgépet és ad ki parancsokat</li>
+                <li>A folyamat explicit, tesztelhető, megfigyelhető</li>
+                <li>Az orkesztrátor egy komponens, amit birtokolni és telepíteni kell</li>
+                <li>Isten-szolgáltatássá válhat, ha logikát halmoz</li>
+              </ul>
+            </div>
+          </div>
+          <p>A sagáknak nincs izolációjuk, és ennek olyan következményei vannak, amiket érdemes kérdés nélkül kimondani: a köztes állapotok más olvasók számára láthatók, tehát adatbázis-zárak helyett szemantikus zárakra van szükség (egy rendelés <code>pending_payment</code> állapotban), a kompenzációknak pedig idempotensnek és sorrendfüggetlennek kell lenniük. Az időtúllépések a terv részei — minden lépésnél kell válasz arra, hogy „mi van, ha sosem jön válasz”, és ez általában egy ütemezett kompenzáció.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan kezelsz egy három szolgáltatáson átívelő tranzakciót?” Sehogy; sagát futtatsz kompenzációkkal, és kimondod, hogy a rendszer eventually consistent, és a részleges állapotok megfigyelhetők. A kétfázisú commithoz nyúlni azért rossz válasz, amiért érdemes elmagyarázni: blokkol, és minden résztvevőnek támogatnia kell.</p>
+          <details class="quiz" id="quiz-sagas"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Hogyan kezelsz egy három szolgáltatáson átívelő tranzakciót?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-1" value="a"><span>Egy elosztott zárral, amit a művelet idejére tartasz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-1" value="b"><span>Közös adatbázis-tranzakcióval egy connection poolon át.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-1" value="c"><span>Kétfázisú commit-tal, hogy mindhárom commitoljon, vagy egyik se.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-1" value="d"><span>Sehogy — lokális tranzakciókból álló sagát futtatsz kompenzáló műveletekkel, és kimondod, hogy a rendszer eventually konzisztens, és a részleges állapotok láthatók.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Egy terhelést nem lehet visszacsinálni, csak visszatéríteni.</b> A kétfázisú commit pont azért rossz válasz, amit érdemes elmondani: blokkol, és minden résztvevőnek támogatnia kell.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi a kompromisszum a koreográfia és az orkesztráció között?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-2" value="a"><span>A koreográfia lazán csatol és könnyű vele kezdeni, de nincs egyetlen hely, ami megmutatja a folyamatot; az orkesztráció explicitté, tesztelhetővé és megfigyelhetővé teszi az állapotgépet, cserébe egy birtoklandó komponensért — és a god service kockázatáért.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-2" value="b"><span>A koreográfiához broker kell, az orkesztrációhoz nem.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-2" value="c"><span>Az orkesztráció event sourcingot igényel.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-2" value="d"><span>A koreográfia gyorsabb; az orkesztráció megbízhatóbb.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A kérdés az, hol lakik a folyamat.</b> Reakciók között szétszórva, vagy egyetlen olvasható folyamatmenedzserben. Mindkettő legitim; a növekvő körök a szokásos ok, amiért a csapatok az elsőtől a második felé mozdulnak.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">A sagáknak nincs izolációjuk. Mi következik ebből?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-3" value="a"><span>Minden lépésnek adatbázis-tranzakción belül kell futnia.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-3" value="b"><span>A köztes állapotok láthatók más olvasók számára, tehát adatbázis-zárak helyett szemantikus zárak kellenek — egy rendelés <code>pending_payment</code> állapotban —, a kompenzációknak pedig idempotenseknek és sorrendtől függetlenül futtathatóknak kell lenniük.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-3" value="c"><span>Az olvasásokat pillanatképből kell kiszolgálni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-3" value="d"><span>Aggregátumonként egyszerre csak egy saga futhat.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ha ezt kérdés nélkül kimondod, a válasz használtnak hangzik, nem olvasottnak.</b> Az időkorlátok is a terv részei: minden lépésnek kell válasza arra, hogy „mi van, ha a válasz sosem érkezik meg” — ez rendszerint egy ütemezett kompenzáció.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="codebase">
+        <header>
+          <h2>PHP-kódbázisban</h2>
+          <span class="count">3 téma</span>
+        </header>
+
+        <article class="topic" id="structure">
+          <h3>Modulszerkezet, és a kikényszerítése</h3>
+          <p><b>Funkció</b> szerint szervezz, ne technikai réteg szerint. A <code>src/Controller</code>, <code>src/Entity</code>, <code>src/Repository</code> egyetlen változtatást három könyvtárba szór szét, és semmit nem árul el arról, mit csinál a rendszer.</p>
+          <pre class="code"><code class="language-bash">src/
+  Billing/                        # bounded context, saját sémával
+    Domain/                       # entitások, VO-k, portok, doménesemények - nulla keretrendszer-import
+      Order.php
+      Orders.php                  # a repository-interfész
+    Application/                  # use case-ek, parancsok, lekérdezések, handlerek
+      RefundOrder.php
+    Infrastructure/               # adapterek: Doctrine, HTTP-kliensek, üzenetkezelés
+      DoctrineOrders.php
+    Presentation/                 # controllerek, CLI-parancsok, üzenetfogyasztók
+      RefundOrderController.php
+  Support/
+    Domain/ ...
+  Shared/                         # csak a tényleg közös kernel: Money, Clock, azonosítók</code></pre>
+          <p>Ezt pusztán konvencióval nem tartod meg. Kényszerítsd ki gépiesen: <b>Deptrac</b> vagy <b>PHPArkitect</b> a CI-ban, olyan szabályokkal, hogy „a <code>Billing\Domain</code> nem függhet a <code>Doctrine</code>-tól, a <code>Symfony</code>-tól vagy a <code>Support\*</code>-tól”. A Composer path repository modulonként a nehezebb változat, és attól lesz a határ véletlenül átléphetetlen, hogy minden modulnak saját <code>composer.json</code>-ja van.</p>
+          <pre class="code"><code class="language-php">// tests/Architecture/LayerTest.php - egy architektúra-szabály futtatható tesztként
+public function testDomainDoesNotDependOnInfrastructure(): void
+{
+    $violations = $this-&gt;dependenciesOf('App\\Billing\\Domain')
+        -&gt;filter(fn (string $dep) =&gt; str_starts_with($dep, 'Doctrine')
+            || str_starts_with($dep, 'Symfony')
+            || str_contains($dep, '\\Infrastructure\\'));
+
+    self::assertSame([], $violations-&gt;toArray());
+}</code></pre>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan akadályozod meg, hogy a moduláris monolitból újra nagy sárgolyó legyen?” Automatikus határellenőrzésekkel a CI-ban. Bármelyik válasz, ami a kódátnézés fegyelmére épül, kiváltja a „és amikor valaki péntek délután siet?” folytatást.</p>
+          <details class="quiz" id="quiz-structure"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Hogyan érdemes a modulokat szervezni?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-1" value="a"><span>Csapattulajdon szerint, a szervezeti ábrához igazítva.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-1" value="b"><span>Technikai réteg szerint — <code>src/Controller</code>, <code>src/Entity</code>, <code>src/Repository</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-1" value="c"><span>Funkció szerint, hogy egy változtatás egy helyen legyen, és a könyvtárlista elárulja, mit csinál a rendszer.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-1" value="d"><span>Ábécésorrendben, osztálynév szerint.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A rétegelsős elrendezés egyetlen változtatást három könyvtárba szór szét, és semmit nem árul el a doménről.</b> A funkcióelsős egy képesség doménjét, alkalmazását és infrastruktúráját teszi egymás mellé, a függőségi szabállyal kikényszerítve belül.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Hogyan akadályozod meg, hogy a moduláris monolit visszaalakuljon nagy sárgolyóvá?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-2" value="a"><span>Egy linterrel, ami tiltja a mély importokat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-2" value="b"><span>Azzal, hogy mikroszolgáltatásokra bontod, mielőtt leromlana.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-2" value="c"><span>Kódátvizsgálási fegyelemmel és dokumentált konvencióval.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-2" value="d"><span>Automatizált határellenőrzésekkel a CI-ban — Deptrac vagy PHPArkitect olyan szabályokkal, hogy „a <code>Billing\Domain</code> nem függhet a Doctrine-tól vagy a <code>Support\*</code>-tól”.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Minden fegyelemre építő válasz kihívja a rákérdezést: „és amikor valaki siet egy pénteken?”</b> A modulonkénti Composer path repository a nehezebb eszköz, és attól lesz a határ véletlenül átléphetetlen.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mit véd valójában egy olyan szabály, hogy „a <code>Billing\Domain</code> nem függhet a <code>Symfony</code>-tól”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-3" value="a"><span>Azt a képességet, hogy a domén keretrendszer indítása nélkül tesztelhető, és hogy a keretrendszer a domén érintése nélkül cserélhető.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-3" value="b"><span>A modul publikus API-felületét.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-3" value="c"><span>A deploy-függetlenséget.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-3" value="d"><span>A buildidőt, az autoloadolt osztályok számának csökkentésével.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A függőségi szabály, gépiesen kikényszerítve.</b> Egyben architektúrateszt is: a rétegezés olyasmivé válik, amit a CI fed le, nem olyasmivé, amire a csapat emlékszik.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="framework">
+          <h3>A keretrendszer mint részlet — Symfonyra és Laravelre képezve</h3>
+          <p>A „keretrendszer csak részlet” nem azt jelenti, hogy kerülöd. Azt jelenti, hogy a keretrendszer hívja a te kódodat, nem fordítva — és ennek megértését konkrétan úgy mutatod meg, hogy ráképezed a gondolatokat az álláshirdetésben szereplő keretrendszerre.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Fogalom</th><th>Symfony</th><th>Laravel</th><th>Szabvány</th></tr></thead>
+              <tbody>
+                <tr><td>Bekötés / DI</td><td>Service container, autowiring, fordított</td><td>Service container, service providerek</td><td>PSR-11</td></tr>
+                <tr><td>Kérésfeldolgozó lánc</td><td>Kernel-események, vagy PSR-15 middleware</td><td>Middleware stack</td><td>PSR-15</td></tr>
+                <tr><td>Események</td><td>EventDispatcher</td><td>Eventek és listenerek</td><td>PSR-14</td></tr>
+                <tr><td>Aszinkron munka</td><td>Messenger (busz + transportok)</td><td>Queue-k és jobok</td><td>—</td></tr>
+                <tr><td>Perzisztencia</td><td>Doctrine — Data Mapper</td><td>Eloquent — Active Record</td><td>—</td></tr>
+                <tr><td>Jogosultság</td><td>Voterek</td><td>Policyk és gate-ek</td><td>—</td></tr>
+                <tr><td>Naplózás</td><td>Monolog</td><td>Monolog</td><td>PSR-3</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note"><b>Az Eloquent-kérdés.</b> Az Active Record a modellt az adatbázishoz köti, ami feszültségben van egy tiszta doménréteggel. Két őszinte álláspont: tartsd meg az Eloquent-modelleket perzisztencia- és olvasási modellnek, a doménviselkedést pedig tedd külön objektumokba, vagy fogadd el az Active Recordot, és ne tegyél úgy, mintha a domén el lenne szigetelve. Mindkettő védhető; a „lecserélném az Eloquentet Doctrine-ra” egy Laravel-boltban általában nem az a válasz, amit remélnek. A mechanikát a PHP kézikönyv Active Record vs Data Mapper témája fedi le.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Hogy nézne ki ez az architektúra Symfonyban?” Válaszolj az ő szótárukkal: a portok interfészek, amiket a konténer autowire-öl, az adapterek szolgáltatások, a use case-ek a Messenger parancsbusza mögött, a doménesemények PSR-14-en keresztül flush után. Az teszi a beszélgetést kerekké, hogy összeköti az absztrakcióidat az ő stackjükkel.</p>
+          <details class="quiz" id="quiz-framework"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mit jelent a gyakorlatban az, hogy „a keretrendszer csak részlet”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-1" value="a"><span>Kerüld a keretrendszer szolgáltatásait, és írj meg mindent magad.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-1" value="b"><span>A keretrendszer hívja a te kódodat, nem fordítva — és ennek megértését úgy mutatod meg, hogy az ötleteket ráképezed az álláshirdetésben szereplő keretrendszerre.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-1" value="c"><span>A keretrendszer egy délután alatt lecserélhető.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-1" value="d"><span>Az üzleti logikának Packagistre publikált, keretrendszer-független csomagokban kell laknia.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A hívás irányáról szól, nem absztinenciáról.</b> Portok mint autowire-olt interfészek, adapterek mint szolgáltatások, use case-ek a Messenger command busa mögött, doménesemények PSR-14-en át flush után — az ő szókincsükben válaszolj.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Az Eloquent Active Record, ami a modellt az adatbázishoz köti. Mi a két őszinte álláspont?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-2" value="a"><span>Az Eloquentet csak olvasásra, nyers SQL-t írásra használni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-2" value="b"><span>Lecserélni Doctrine-ra, vagy elfogadni egy karbantarthatatlan domént.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-2" value="c"><span>Az Eloquent modelleket perzisztencia- és olvasómodellként megtartani, a doménviselkedést külön objektumokba tenni — vagy elfogadni az Active Recordot, és abbahagyni, hogy izolált doménnek tetteted.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-2" value="d"><span>Minden Eloquent modellt repository-interfészbe csomagolni, ami megszünteti a csatolást.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Mindkettő védhető; a tettetés nem.</b> Az „lecserélném az Eloquentet Doctrine-ra” egy Laravel-boltban rendszerint nem az a válasz, amit hallani akarnak.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Melyik PSR szabványosítja azt a kéréspipeline-t, amit a Symfony és a Laravel is a maga módján fejez ki?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-3" value="a"><span>PSR-3</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-3" value="b"><span>PSR-11</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-3" value="c"><span>PSR-14</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-3" value="d"><span>PSR-15</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A PSR-15 a middleware-ekre és kéréskezelőkre.</b> A többi ugyanebben a leképezésben: PSR-11 a konténerre, PSR-14 az eseményekre, PSR-3 a naplózásra — és nevezetesen semmilyen szabvány az aszinkron munkára és a perzisztenciára.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="testing">
+          <h3>Tesztelési stratégia rétegenként</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Réteg</th><th>Tesztfajta</th><th>Helyettesítők</th><th>Sebesség</th></tr></thead>
+              <tbody>
+                <tr><td>Domén (entitások, VO-k)</td><td>Sima unit tesztek, konténer nélkül</td><td>Semmi — valódi objektumokat építesz</td><td>Ezredmásodperc; futtass ezreket</td></tr>
+                <tr><td>Alkalmazás (use case-ek)</td><td>Use case tesztek a publikus API-n át</td><td>Memóriabeli adapterek a portokhoz</td><td>Gyors</td></tr>
+                <tr><td>Infrastruktúra-adapterek</td><td>Integrációs tesztek a valódi dologgal</td><td>Valódi adatbázis Dockerben, rögzített HTTP</td><td>Lassú; tartsd alacsonyan a számukat</td></tr>
+                <tr><td>Megjelenítés</td><td>Vékony réteg végponttól végpontig tesztekből</td><td>A teljes stack</td><td>A leglassabb; csak a kritikus utak</td></tr>
+                <tr><td>Szolgáltatások között</td><td>Szerződéstesztek</td><td>Pact-stílusú fogyasztói elvárások</td><td>Gyors, elkapja a törő változtatásokat</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Az architektúra hozadéka az, hogy az érdekes tesztek lesznek a gyorsak: ha a doménben nincs keretrendszer-import, a tesztkészletéhez nem kell kernel, adatbázis és fixture. Inkább hamisítványt használj (a port működő memóriabeli implementációját), mint elvárásokkal felszerelt mockot — a mock arra állít, <em>hogyan</em> hívtad a társobjektumot, ami az implementációhoz köti a tesztet, és drágává teszi a refaktorálást. Vedd fel a fenti architektúra-teszteket is, hogy magára a rétegzésre is legyen fedezet.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan tesztelsz egy use case-t, ami kártyát terhel?” Memóriabeli <code>PaymentGateway</code> hamisítvány, memóriabeli repository, rögzített <code>Clock</code>, és állítás a keletkező állapotra és az elengedett eseményekre. Aztán egy integrációs teszt arra, hogy a valódi Stripe-adapter helyesen képezi le a válaszokat — külön, és nem minden commitnál.</p>
+          <details class="quiz" id="quiz-testing"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Miért az érdekes tesztek lesznek a gyorsak ebben az architektúrában?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-1" value="a"><span>Mert egy keretrendszer-import nélküli doménhez nem kell kernel, adatbázis és fixture — így a szabályokat fedő tesztek ezredmásodpercek alatt futnak.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-1" value="b"><span>Mert a memóriabeli adapterek gyorsabbak a Docker-konténereknél.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-1" value="c"><span>Mert a tesztkészlet párhuzamosítható.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-1" value="d"><span>Mert a unit tesztek mindig gyorsabbak az integrációsaknál.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ez az architektúra hozadéka, tesztelési tulajdonságként kimondva.</b> Az integrációs tesztek továbbra is léteznek az adapterekre, valódi adatbázissal Dockerben vagy rögzített HTTP-vel — de tervezetten kevesen és lassan maradnak.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Miért jobb egy fake, mint egy elvárásokkal felszerelt mock?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-2" value="a"><span>A fake-et gyorsabb megírni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-2" value="b"><span>A mock arra állít, <em>hogyan</em> hívták az együttműködőt, ami a tesztet az implementációhoz köti és drágává teszi a refaktorálást; a fake működő implementáció, aminek az eredményére állítasz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-2" value="c"><span>A mock nem használható több metódusú interfészekhez.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-2" value="d"><span>A fake újrahasznosítható élesben.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az eredményt teszteld, ne a koreográfiát.</b> Egy port működő memóriabeli implementációja ráadásul válasz a hexagonális témából ismert „valódi port ez?” kérdésre is.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Hogyan tesztelsz egy kártyát terhelő use case-t?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-3" value="a"><span>Tranzakcióba csomagolod és visszagördíted.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-3" value="b"><span>Mockolod az átjárót, és állítod, hogy a <code>charge()</code> egyszer hívódott.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-3" value="c"><span>Memóriabeli <code>PaymentGateway</code> fake, memóriabeli repository, rögzített <code>Clock</code>; a keletkező állapotra és a kiadott eseményekre állítasz — plusz egy külön integrációs teszt arra, hogy a valódi adapter helyesen képezi le a válaszokat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-3" value="d"><span>Minden commitnál a fizetési szolgáltató sandboxára irányítod.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Két teszt, két cél.</b> A use case-teszt a szabályokat fedi és minden commitnál fut; az adapterteszt a leképezést fedi, és ehhez nem kell minden commitnál futnia.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="deciding">
+        <header>
+          <h2>Döntés</h2>
+          <span class="count">3 téma</span>
+        </header>
+
+        <article class="topic" id="tradeoffs">
+          <h3>Kompromisszumok, fitness functionök, ADR-ek</h3>
+          <p>Egy architektúra-interjú senior része ritkán az, hogy „ismered-e a CQRS-t”. Hanem az, hogy meg tudod-e mondani, mibe kerül egy döntés, honnan tudnád meg, hogy rossz volt, és hogyan kerül rögzítésre.</p>
+          <p>Egy használható keret bármely javaslathoz, hangosan, ebben a sorrendben: melyik minőségi jellemzőre optimalizálunk (késleltetés? független deploy? auditálhatóság?), mit adunk fel, mennyibe kerül a visszafordítás, ha tévedünk, és mit mérnénk, hogy ez kiderüljön. Ez utóbbi a <b>fitness function</b> — egy automatikus ellenőrzés arra, hogy a tulajdonság még fennáll: architektúra-teszt a függőségi szabályra, teljesítménybüdzsé a CI-ban, riasztás a projekció lemaradására.</p>
+          <pre class="code"><code class="language-bash"># docs/adr/0007-outbox-for-order-events.md
+# Állapot:      Elfogadva (2026-09-10)
+# Kontextus:    A rendeléseknek értesíteniük kell a számlázást; a közvetlen hívás összeköti
+#               a rendelkezésre állást, a naiv commit utáni publikálás pedig üzenetet veszít,
+#               ha a broker áll.
+# Döntés:       Tranzakciós outbox a rendelések sémájában, workerrel olvasva.
+# Következmények:
+#   + Nincs dual-write inkonzisztencia; a broker leállása csak késlelteti a kézbesítést.
+#   - Duplikált publikálás lehetséges: minden fogyasztónak kell inbox tábla.
+#   - Egy további workert kell futtatni, monitorozni és riasztani rá (lemaradás &gt; 60s riaszt).
+# Alternatívák: 2PC (elvetve: blokkol, a brokerünk nem támogatja),
+#               CDC a binlogon (egyelőre elvetve: üzemeltetési költség, méretnél újranézni).</code></pre>
+          <p>Az ADR egy oldal a repositoryban, elfogadás után módosíthatatlan, nem szerkesztjük, hanem leváltjuk. A valódi értéke fél évvel később derül ki, amikor valaki megkérdezi, hogy miért — és azért tűnik ki az a jelölt, aki ADR-eket említ, mert ez azt jelzi, hogy elvárja, hogy számon kérjék rajta a döntéseit, nem csak meghozza őket és továbbáll.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mesélj egy architekturális döntésről, amit megbántál.” Válaszolj egy valódival, a jellel, amiből kiderült, és azzal, amin változtattál. Annak megnevezése, hogy milyen visszafordítási költséget hagytál figyelmen kívül, többet ér bármennyi mintaszókincsnél.</p>
+          <details class="quiz" id="quiz-tradeoffs"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Milyen keret tesz egy architektúra-javaslatot senior válasszá?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-1" value="a"><span>Az, hogy mennyi ideig tart megvalósítani, és mibe kerül.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-1" value="b"><span>Az, hogy milyen alternatívákat mérlegeltél és vetettél el.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-1" value="c"><span>Az, hogy milyen mintákat használ, és melyik keretrendszer támogatja őket.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-1" value="d"><span>Az, hogy melyik minőségi tulajdonságot optimalizálja, mit adsz fel érte, mi a visszafordítás költsége, ha tévedsz, és mit mérnél, hogy kiderüljön.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Mondd ki hangosan, ebben a sorrendben.</b> Egy architektúra-interjú senior része ritkán az, hogy „ismered-e a CQRS-t” — hanem az, hogy meg tudod-e mondani, mibe kerül egy döntés, és honnan tudnád meg, hogy rossz volt.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi az a fitness function?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-2" value="a"><span>Automatizált ellenőrzés arra, hogy egy architekturális tulajdonság még mindig fennáll — architektúrateszt a függőségi szabályra, teljesítménykeret a CI-ban, riasztás a projekció késésére.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-2" value="b"><span>Pontozási modell tervek összehasonlítására.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-2" value="c"><span>Egy dashboardon követett metrika.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-2" value="d"><span>Kiadás előtt futtatott benchmark.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ez a „honnan tudnánk meg” fele, futtathatóvá téve.</b> Nélküle egy architekturális döntés csendben romlik, amíg valaki egy incidens közben észre nem veszi.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mi az ADR, és miért tűnik ki az, aki megemlíti?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-3" value="a"><span>Megvalósítás előtt átvizsgált tervdokumentum; tervezettséget mutat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-3" value="b"><span>Egy oldal a repositoryban, elfogadás után megváltoztathatatlan, és szerkesztés helyett felülíró dokumentummal váltják le — azt jelzi, hogy elvárod, hogy számon kérjék rajtad a döntéseket, nem pedig meghozod őket és továbbállsz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-3" value="c"><span>Minden architekturális változás feljegyzése, a terv alakulásával frissítve.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-3" value="d"><span>Sablon csapatok közti RFC-khez.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A valódi értéke fél évvel később érkezik, amikor valaki megkérdezi, hogy miért.</b> Egy elfogadott ADR szerkesztése ezt tönkreteszi; egy új, amelyik leváltja, megőrzi az érvelést és a dátumot.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="migration">
+          <h3>Strangler fig, seamek, anti-corruption layer</h3>
+          <p>Senki nem ír újra egy működő rendszert. A strangler fig minta fokozatosan cseréli le: teszel elé egy homlokzatot, egyszerre egy képességet irányítasz át az új implementációra, és törlöd a régi utat, amint elfogyott róla a forgalom.</p>
+          <pre class="code"><code class="language-php">// A seam: egy interfész, két implementáció, kapcsolóval vezérelt útválasztás.
+final class RoutingInvoices implements Invoices
+{
+    public function __construct(
+        private Invoices $legacy,
+        private Invoices $rebuilt,
+        private FeatureFlags $flags,
+    ) {}
+
+    public function issue(InvoiceRequest $request): Invoice
+    {
+        if (!$this-&gt;flags-&gt;enabled('invoices.rebuilt', $request-&gt;tenantId)) {
+            return $this-&gt;legacy-&gt;issue($request);
+        }
+
+        $invoice = $this-&gt;rebuilt-&gt;issue($request);
+
+        // Opcionális árnyékmód: fusson mindkettő, hasonlítsd össze, naplózd az eltérést,
+        // és a régit szolgáld ki, amíg az eltérési arány nulla nem lesz.
+        // Pénzügyi kódot így kell migrálni.
+        return $invoice;
+    }
+}</code></pre>
+          <p>A munka nagy részét két támogató gondolat végzi. A <b>seam</b> az a hely, ahol a viselkedés megváltoztatható a körülötte lévő kód szerkesztése nélkül — PHP-ban egy interfész plusz konstruktorinjektálás; a seamek megtalálása vagy létrehozása minden legacy migráció első lépése. Az <b>anti-corruption layer</b> egy fordítási határ, ami megakadályozza, hogy a legacy modell átszivárogjon az újba: az új kontextus a saját nyelvét beszéli, és a szélén konvertál. Enélkül az újraírás pontosan azt az alakot örökli, ami elől menekülni akart.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan modernizálnál egy tízéves PHP-alkalmazást?” Soha nem nagy bumm újraírással. Karakterizációs tesztek a jelenlegi viselkedés rögzítésére, homlokzat a határon, egy képesség kiemelése ACL-lel, forgalomátterelés feature flaggel és árnyékösszehasonlítással, majd a régi út törlése. Aztán: azt a képességet vedd először, ahol a változási ráta a legnagyobb, mert ott térül meg.</p>
+          <details class="quiz" id="quiz-migration"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Hogyan modernizálnál egy tízéves PHP-alkalmazást?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-1" value="a"><span>Az egészet API gateway mögé teszed, és mellé építed az új rendszert.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-1" value="b"><span>Befagyasztod a fejlesztést, és újraírod az aktuális keretrendszerre.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-1" value="c"><span>Karakterizációs tesztekkel rögzíted a jelenlegi viselkedést, homlokzatot teszel a határra, egy képességet kiemelsz anti-corruption layer mögé, flag mögött árnyék-összehasonlítással átirányítod a forgalmat, majd törlöd a régi utat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-1" value="d"><span>Először PHP-t frissítesz, aztán modulonként helyben refaktorálsz.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Soha nem big-bang újraírás.</b> És azt a képességet vedd elsőnek, amelyik a leggyakrabban változik, mert ott van a megtérülés — a stabil rész újraírása semmit nem hoz.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Mi az a seam?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-2" value="a"><span>A régi és az új rendszer közti interfész a migráció alatt.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-2" value="b"><span>Egy pont, ahol egy tranzakció kettévágható.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-2" value="c"><span>Két bounded context közti határ.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-2" value="d"><span>Olyan hely, ahol a viselkedés megváltoztatható a körülötte lévő kód szerkesztése nélkül — PHP-ban egy interfész plusz konstruktoros injektálás.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A seamek megtalálása vagy létrehozása minden legacy migráció első lépése.</b> Nélküle minden változtatás olyan kód szerkesztését jelenti, amit nem tudsz tesztelni — pont az a csapda, ami elől az egész stratégia menekül.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi ellen véd az anti-corruption layer?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-3" value="a"><span>Az ellen, hogy a legacy modell beszivárogjon az újba — az új kontextus a saját nyelvét beszéli, és a peremen fordít.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-3" value="b"><span>A bérlők közti hozzáférés ellen a fokozatos bevezetés alatt.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-3" value="c"><span>A mindkét rendszerbe történő duplikált írások ellen.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-3" value="d"><span>Adatromlás ellen a migráció során.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Nélküle az újraírás pont azt az alakot örökli, ami elől menekülni akart.</b> Ez a leggyakoribb mód, ahogy egy strangler fig migráció végül egy második rendszert szül az első problémáival.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="rapid">
+          <h3>Az egysorosok, amiket érdemes készenlétben tartani</h3>
+          <dl class="rapid">
+            <div><dt>Conway törvénye</dt><dd>A rendszer szerkezete a kommunikáció szerkezetét tükrözi. A fordított manőver — a csapatok átszabása a kívánt architektúráért — valódi taktika.</dd></div>
+            <div><dt>Csatolás és kohézió</dt><dd>Alacsony csatolás a modulok között, magas kohézió egy modulon belül. Minden itteni minta ezt vásárolja meg.</dd></div>
+            <div><dt>CAP, őszintén</dt><dd>Partíció márpedig lesz, tehát a valódi választás konzisztencia vagy rendelkezésre állás egy partíció alatt. A „CP vagy AP” műveletenkénti döntés, nem az adatbázisra ragasztott címke.</dd></div>
+            <div><dt>Idempotencia mindenütt</dt><dd>A legalább-egyszeri kézbesítés az alapértelmezés minden komolyan vehető brokernél. A fogyasztót eszerint tervezd.</dd></div>
+            <div><dt>Kétfázisú commit</dt><dd>Létezik, és ritkán éri meg: blokkol, kell hozzá résztvevői támogatás, és egy lassú csomópont megakasztja az egészet.</dd></div>
+            <div><dt>Közös adatbázis szolgáltatások között</dt><dd>A klasszikus elosztott monolit: független deploy, összekötött séma. Rosszabb, mint egy monolit.</dd></div>
+            <div><dt>A repository aggregátumot ad vissza</dt><dd>Nem sortömböket, nem query buildert. Ha sorokra van szükséged, az az olvasási oldal.</dd></div>
+            <div><dt>Anémiás modell</dt><dd>Getterek, setterek, logika a szolgáltatásokban. Néha pontosan ez a helyes — mondd meg, mikor, ne az antimintát mondd fel.</dd></div>
+            <div><dt>DTO vagy értékobjektum</dt><dd>A DTO viselkedés nélküli szállítási alak; a VO doménfogalom invariánsokkal és egyenlőséggel.</dd></div>
+            <div><dt>A hexagonális nem könyvtárszerkezet</dt><dd>Ha átnevezed a könyvtárakat <code>Domain</code>-re és <code>Infrastructure</code>-re, miközben az entitás az ORM ősosztályából származik, semmi nem változott.</dd></div>
+            <div><dt>Az eventual consistency terméki döntés</dt><dd>Valakinek el kell fogadnia, hogy egy képernyő két másodpercig elavult lehet. Ezt egyeztesd le, ne feltételezd.</dd></div>
+            <div><dt>YAGNI és a függőségi szabály</dt><dd>A szabályt olcsó az első naptól követni és drága utólag beépíteni; az üzenetbusszal ez fordítva van. Eszerint vezesd be őket.</dd></div>
+            <div><dt>Elosztott tracing</dt><dd>Amint a folyamatok szolgáltatásokon vagy sorokon ívelnek át, a korrelációs azonosító minden üzeneten nem opció.</dd></div>
+            <div><dt>A legjobb válasz a „melyik mintá”-ra</dt><dd>„Mi a megkötés?” A kontextus nélküli architektúra-kérdések azt mérik, hogy megkérdezed-e.</dd></div>
+          </dl>
+          <details class="quiz" id="quiz-rapid"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mit mond ki Conway törvénye, és mi a „fordított manőver”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="a"><span>Hogy a rendszerek a rendetlenség felé romlanak; a válasz a folyamatos refaktorálás.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="b"><span>Hogy a rendszer szerkezete a szervezet kommunikációs szerkezetét tükrözi — és hogy valódi taktika a csapatokat átszervezni azért, hogy a kívánt architektúrát megkapd.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="c"><span>Hogy egy késő projekthez embereket adva még későbbi lesz; a válasz a kisebb csapat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="d"><span>Hogy a modulok kitöltik a rendelkezésre álló időt; a válasz a szigorú hatókörözés.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ha három csapat birtokol egy szolgáltatást, három modult fogsz kapni benne.</b> A fordított manőver szándékos: előbb a csapathatárokat változtatod meg, és a rendszer követi.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi a CAP őszinte megfogalmazása?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="a"><span>A gyakorlatban mindig az elérhetőség nyer.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="b"><span>A konzisztencia, elérhetőség és partíciótűrés közül kettőt választasz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="c"><span>A partíciók megtörténnek, tehát a valódi választás a konzisztencia vagy az elérhetőség <em>egy partíció alatt</em> — és ez műveletenkénti döntés, nem adatbázisra sütött bélyeg.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="d"><span>Az elosztott rendszerek nem lehetnek konzisztensek.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A „válassz kettőt” az a változat, ami diákon túlél, de az első rákérdezésnél szétesik.</b> Ugyanez a műveletszintű gondolkodás áll az eventual consistencyre is: valakinek el kell fogadnia, hogy egy képernyő két másodpercig elavult lehet, és ez terméki döntés.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Miért rosszabb két szolgáltatás közös adatbázisa, mint egy monolit?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="a"><span>Mert a tranzakciók nem ívelhetnek át szolgáltatásokon.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="b"><span>Mert a migrációkat össze kell hangolni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="c"><span>Mert a connection pool szűk keresztmetszet lesz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="d"><span>Mert független deployt kapsz csatolt sémával — ez a klasszikus elosztott monolit, a szétválasztás minden költségével és az izoláció nélkül.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Megfizeted az elosztottság adóját anélkül, hogy bármit vennél rajta.</b> Ugyanebbe az egysoros családba tartozik: a könyvtárak <code>Domain/</code> és <code>Infrastructure/</code> névre keresztelése semmit nem változtat, ha az entitás továbbra is az ORM ősosztályából származik — a hexagonális nem könyvtárszerkezet.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <footer class="end">
+        <p>A terminológia Evans (bounded context, aggregátum), Cockburn (portok és adapterek), Fowler (strangler fig, anémiás modell) és Young (CQRS) nyomán. Társdokumentumok: a PHP OOP és PSR kézikönyv a SOLID-hoz, a DI-hez és a mintakatalógushoz, valamint a HTTP és API-tervezés kézikönyv azokhoz a határokhoz, amiket ezek a modulok kifelé mutatnak.</p>
+      </footer>
+
+    </main>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup-templating.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-php.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="../assets/guide.js"></script>
+</body>
+</html>

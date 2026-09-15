@@ -1,0 +1,1427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture Above the Code Field Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topbar" aria-label="Guides">
+    <a class="home" href="../index.html">PHP Field Guides</a>
+    <ul>
+      <li><a href="php-en.html">PHP OOP &amp; PSR</a></li>
+      <li><a href="http-api-en.html">HTTP &amp; API</a></li>
+      <li><a href="auth-en.html">Authentication</a></li>
+      <li><a href="architecture-en.html" aria-current="page">Architecture</a></li>
+    </ul>
+  </nav>
+
+  <header class="masthead">
+    <p class="eyebrow">Interview preparation · senior track</p>
+    <h1>Architecture Above the Code</h1>
+    <p class="standfirst">Hexagonal, CQRS and event sourcing — what each one actually is, the PHP it turns into, and the cost you are accepting. Plus the part interviews really test: deciding which of them a given system does <em>not</em> need, and being able to say why.</p>
+    <div class="meta-row">
+      <span>Companion to the <b>PHP OOP &amp; PSR</b> guide</span>
+      <span>Current as of <b>Sept 2026</b></span>
+      <span><b>16</b> topics</span>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <nav class="toc" aria-label="Contents">
+      <div class="filter">
+        <input id="filter" type="search" placeholder="Filter topics…" aria-label="Filter topics">
+      </div>
+      <h2>Boundaries</h2>
+      <ol>
+        <li><a href="#dependency-rule">Layers &amp; the dependency rule</a></li>
+        <li><a href="#hexagonal">Ports and adapters</a></li>
+        <li><a href="#application-layer">The application layer</a></li>
+        <li><a href="#domain-model">Entities, VOs, aggregates</a></li>
+        <li><a href="#contexts">Bounded contexts</a></li>
+      </ol>
+      <h2>Patterns</h2>
+      <ol>
+        <li><a href="#cqrs">CQRS, precisely</a></li>
+        <li><a href="#events">Domain vs integration events</a></li>
+        <li><a href="#outbox">The outbox pattern</a></li>
+        <li><a href="#event-sourcing">Event sourcing</a></li>
+        <li><a href="#sagas">Sagas &amp; eventual consistency</a></li>
+      </ol>
+      <h2>In a PHP codebase</h2>
+      <ol>
+        <li><a href="#structure">Module layout</a></li>
+        <li><a href="#framework">Framework as a detail</a></li>
+        <li><a href="#testing">Testing per layer</a></li>
+      </ol>
+      <h2>Deciding</h2>
+      <ol>
+        <li><a href="#tradeoffs">Trade-offs &amp; ADRs</a></li>
+        <li><a href="#migration">Strangler fig &amp; ACL</a></li>
+        <li><a href="#rapid">Rapid-fire gotchas</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <section class="part" id="boundaries">
+        <header>
+          <h2>Boundaries</h2>
+          <span class="count">5 topics</span>
+        </header>
+        <p class="part-intro">Every architecture on this page is one idea applied at different scales: put a line somewhere, and control which direction the dependencies cross it. Learn the idea and the named patterns stop needing memorisation.</p>
+
+        <article class="topic" id="dependency-rule">
+          <h3>Layers and the dependency rule</h3>
+          <p>Layered, hexagonal, onion and clean architecture are the same rule drawn four ways: <b>source code dependencies point inward, toward policy, never outward toward detail</b>. The domain must not know that MySQL, HTTP or Symfony exist.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Name</th><th>Its emphasis</th><th>What it adds</th></tr></thead>
+              <tbody>
+                <tr><td>Classic layered (n-tier)</td><td>Presentation → business → data</td><td>Nothing stops the top layer reaching the bottom; dependencies flow down to the database</td></tr>
+                <tr><td>Hexagonal (ports &amp; adapters)</td><td>Inside vs outside</td><td>Every external interaction is an explicit port with swappable adapters</td></tr>
+                <tr><td>Onion</td><td>Concentric rings around the domain model</td><td>Names the rings and forbids inward-facing knowledge of outer ones</td></tr>
+                <tr><td>Clean</td><td>Use cases at the centre</td><td>The dependency rule stated as a rule, plus explicit boundary DTOs</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>The mechanism that makes an inward-pointing dependency possible when control flows outward is <b>dependency inversion</b>: the domain declares the interface it needs, and infrastructure implements it. That single move — the interface living with its <em>consumer</em>, not its implementation — is what turns a layered app into a hexagonal one.</p>
+          <pre class="code"><code class="language-php">// Domain/Repository/Orders.php — declared by the domain, implemented outside it.
+namespace App\Domain\Order;
+
+interface Orders
+{
+    public function get(OrderId $id): Order;
+    public function save(Order $order): void;
+    public function nextIdentity(): OrderId;
+}</code></pre>
+          <pre class="code"><code class="language-php">// Infrastructure/Persistence/DoctrineOrders.php — knows Doctrine; the domain never does.
+namespace App\Infrastructure\Persistence;
+
+final class DoctrineOrders implements \App\Domain\Order\Orders
+{
+    public function __construct(private EntityManagerInterface $em) {}
+
+    public function get(OrderId $id): Order
+    {
+        return $this-&gt;em-&gt;find(Order::class, $id-&gt;toString())
+            ?? throw new OrderNotFound($id);
+    }
+}</code></pre>
+          <p class="asked"><b>Asked as</b> — “What is the difference between hexagonal and clean architecture?” Very little in substance — both enforce the dependency rule; hexagonal emphasises symmetric ports for every external actor, clean emphasises use cases at the centre. A candidate who says “they are largely the same idea, here is the rule they share” sounds far better than one who recites two diagrams.</p>
+          <details class="quiz" id="quiz-dependency-rule"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What single rule do layered, hexagonal, onion and clean architecture share?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-1" value="a"><span>Source code dependencies point inward, toward policy, never outward toward detail.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-1" value="b"><span>The database is at the centre of the design.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-1" value="c"><span>Each layer is deployed independently.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-1" value="d"><span>Every layer may only call the one directly below it.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Four drawings, one rule.</b> The domain must not know that MySQL, HTTP or Symfony exist. Classic n-tier is the odd one out precisely because nothing there stops dependencies flowing down to the database.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Control flows outward — the domain needs to save something. How can the dependency still point inward?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-2" value="a"><span>By passing the repository as a parameter on every call.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-2" value="b"><span>Through dependency inversion: the domain declares the interface it needs, and infrastructure implements it.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-2" value="c"><span>By making the infrastructure layer a subclass of the domain layer.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-2" value="d"><span>By dispatching an event instead of calling out.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The interface lives with its <em>consumer</em>, not its implementation.</b> That single move is what turns a layered application into a hexagonal one, and it is the mechanical answer to a question people usually answer with a diagram.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What is the difference between hexagonal and clean architecture?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-3" value="a"><span>Hexagonal is for monoliths, clean for microservices.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-3" value="b"><span>Hexagonal allows six layers; clean allows four.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-3" value="c"><span>Very little in substance — both enforce the dependency rule; hexagonal emphasises symmetric ports for every external actor, clean emphasises use cases at the centre and explicit boundary DTOs.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-dependency-rule-3" value="d"><span>Clean architecture forbids frameworks entirely.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>“They are largely the same idea, and here is the rule they share” sounds far better than reciting two diagrams.</b> The distinction is emphasis, not substance.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="hexagonal">
+          <h3>Ports and adapters in practice</h3>
+          <p>A <b>port</b> is an interface owned by the inside. An <b>adapter</b> connects it to something real. They come in two directions, and confusing them is the usual mistake.</p>
+          <div class="versus">
+            <div>
+              <h4>Driving (primary) adapters</h4>
+              <ul>
+                <li>The outside calls <em>in</em></li>
+                <li>HTTP controller, CLI command, queue consumer, cron</li>
+                <li>Depend on the application's use case interface</li>
+                <li>Test by calling the use case directly instead</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Driven (secondary) adapters</h4>
+              <ul>
+                <li>The inside calls <em>out</em></li>
+                <li>Repository, mailer, payment gateway, clock, event bus</li>
+                <li>Implement an interface the inside declared</li>
+                <li>Test by substituting an in-memory fake</li>
+              </ul>
+            </div>
+          </div>
+          <pre class="code"><code class="language-php">// A driven port and two adapters — production and test — behind one interface.
+interface PaymentGateway
+{
+    public function charge(Money $amount, CardToken $card): ChargeResult;
+}
+
+final class StripeGateway implements PaymentGateway { /* HTTP, retries, mapping */ }
+
+final class InMemoryGateway implements PaymentGateway     // lives in tests/
+{
+    public array $charges = [];
+    public function charge(Money $amount, CardToken $card): ChargeResult
+    {
+        $this-&gt;charges[] = $amount;
+        return ChargeResult::succeeded('ch_test_1');
+    }
+}</code></pre>
+          <div class="note"><b>The tell for a real port.</b> If you cannot write a sensible in-memory implementation of the interface, it is not a port — it is your database's API with a new name. <code>findByQueryBuilder(QueryBuilder $qb)</code> on a repository interface is a leak: the domain now depends on Doctrine through the signature.</div>
+          <p>Two ports people forget until a test goes flaky: the <b>clock</b> (<code>interface Clock { public function now(): DateTimeImmutable; }</code>) and the <b>id generator</b>. Both are non-determinism entering the domain; both are one-line interfaces that make aggregate tests reproducible.</p>
+          <p class="asked"><b>Asked as</b> — “What does hexagonal architecture actually buy you?” Substitutability at the edges and a domain you can test without booting the framework. The honest cost — more interfaces, more indirection, a jump-to-definition that lands on an interface — is worth naming before they raise it.</p>
+          <details class="quiz" id="quiz-hexagonal"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">What is the difference between a driving and a driven adapter?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-1" value="a"><span>Driving adapters are tested, driven adapters are mocked.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-1" value="b"><span>Driving adapters live in the domain; driven adapters in infrastructure.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-1" value="c"><span>Driving adapters are synchronous; driven adapters are asynchronous.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-1" value="d"><span>A driving adapter is the outside calling in (HTTP controller, CLI, queue consumer); a driven adapter is the inside calling out (repository, mailer, gateway) and implements an interface the inside declared.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Confusing the two directions is the usual mistake.</b> The driving side depends on the application's use case interface; the driven side implements an interface the application owns. Only the second is a dependency inversion.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">How do you tell a genuine port from a leaky one?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-2" value="a"><span>If you cannot write a sensible in-memory implementation of the interface, it is not a port — it is your database's API with a new name.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-2" value="b"><span>A port must be declared <code>final</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-2" value="c"><span>A port never returns domain objects.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-2" value="d"><span>A port has fewer than five methods.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b><code>findByQueryBuilder(QueryBuilder $qb)</code> is the canonical leak</b> — the domain now depends on Doctrine through the signature. The in-memory-fake test is quick, honest, and catches most of these in review.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Which two ports do people forget until a test goes flaky?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-3" value="a"><span>The logger and the cache.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-3" value="b"><span>The clock and the id generator.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-3" value="c"><span>The event bus and the mailer.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-hexagonal-3" value="d"><span>The repository and the unit of work.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Both are non-determinism entering the domain</b>, and both are one-line interfaces that make aggregate tests reproducible. The honest cost of all this — more interfaces, more indirection, jump-to-definition landing on an interface — is worth naming before the interviewer raises it.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="application-layer">
+          <h3>The application layer: use cases, not controllers</h3>
+          <p>The application service (or command handler, or interactor) is the thin layer that orchestrates: load an aggregate, call one domain method, persist, dispatch events. It holds no business rules of its own — if it contains an <code>if</code> about money, that rule belongs in the domain.</p>
+          <pre class="code"><code class="language-php">final class RefundOrder                       // one use case, one class
+{
+    public function __construct(
+        private Orders $orders,               // domain port
+        private PaymentGateway $payments,     // domain port
+        private UnitOfWork $transaction,      // infrastructure concern, explicit
+        private EventDispatcher $events,      // PSR-14
+    ) {}
+
+    public function __invoke(RefundOrderCommand $command): void
+    {
+        $order = $this-&gt;orders-&gt;get(new OrderId($command-&gt;orderId));
+
+        // The rule lives in the aggregate; the service only sequences the steps.
+        $refund = $order-&gt;refund(Money::fromMinor($command-&gt;amountMinor, $command-&gt;currency));
+
+        $this-&gt;transaction-&gt;wrap(function () use ($order, $refund) {
+            $this-&gt;payments-&gt;refund($refund);
+            $this-&gt;orders-&gt;save($order);
+        });
+
+        foreach ($order-&gt;releaseEvents() as $event) {
+            $this-&gt;events-&gt;dispatch($event);   // after commit — see the outbox topic
+        }
+    }
+}</code></pre>
+          <p>The controller then shrinks to translation: HTTP in, command object out, result to a response. That is what makes the same use case reachable from a CLI command, a queue worker and a test without duplication — and it is the practical payoff of the whole structure, so lead with it when explaining the layer.</p>
+          <p class="asked"><b>Asked as</b> — “What goes in a service and what goes in an entity?” Orchestration and transaction boundaries in the service; invariants and state transitions in the entity. The smell to name out loud: a service that reads an entity's properties, decides something, and writes them back — that is an anemic model with the logic displaced.</p>
+          <details class="quiz" id="quiz-application-layer"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What belongs in an application service, and what belongs in an entity?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-1" value="a"><span>Everything in the entity; services are for framework glue.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-1" value="b"><span>Validation in the service, persistence in the entity.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-1" value="c"><span>Orchestration and transaction boundaries in the service; invariants and state transitions in the entity.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-1" value="d"><span>Everything in the service; entities are data.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Load an aggregate, call one domain method, persist, dispatch events.</b> If the service contains an <code>if</code> about money, that rule belongs in the domain.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">What is the smell to name out loud when describing this layer?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-2" value="a"><span>A service that returns a DTO rather than an entity.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-2" value="b"><span>A service that starts its own transaction.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-2" value="c"><span>A service that depends on more than three collaborators.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-2" value="d"><span>A service that reads an entity's properties, decides something, and writes them back — an anemic model with the logic displaced.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The behaviour ended up outside the object that owns the data.</b> That is the anemic domain model in practice, and describing the shape is more convincing than naming the anti-pattern.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What is the practical payoff of pushing the use case out of the controller?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-3" value="a"><span>The same use case is reachable from a CLI command, a queue worker and a test without duplication — and the controller shrinks to translation.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-3" value="b"><span>The framework can autowire the controller.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-3" value="c"><span>The service layer can be cached.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-application-layer-3" value="d"><span>The controller becomes easier to unit test.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Lead with this when explaining the layer.</b> HTTP in, command object out, result to a response — everything else lives somewhere all three entry points can reach.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="domain-model">
+          <h3>Entities, value objects, aggregates</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Building block</th><th>Identity</th><th>Mutability</th><th>Example</th></tr></thead>
+              <tbody>
+                <tr><td>Value object</td><td>None — equal by value</td><td>Immutable</td><td><code>Money</code>, <code>Email</code>, <code>DateRange</code></td></tr>
+                <tr><td>Entity</td><td>Has an id; equal by id</td><td>Changes over time</td><td><code>Order</code>, <code>Customer</code></td></tr>
+                <tr><td>Aggregate</td><td>Cluster with one root entity</td><td>Changed only through the root</td><td><code>Order</code> + its <code>OrderLine</code>s</td></tr>
+                <tr><td>Domain service</td><td>Stateless</td><td>—</td><td>A rule spanning several aggregates</td></tr>
+                <tr><td>Repository</td><td>—</td><td>—</td><td>Collection-like access to <b>aggregate roots only</b></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <pre class="code"><code class="language-php">final class Order                       // aggregate root
+{
+    private array $lines = [];
+    private array $events = [];
+
+    public function addLine(ProductId $product, int $quantity, Money $unitPrice): void
+    {
+        if ($this-&gt;status !== OrderStatus::Draft) {
+            throw new OrderNotEditable($this-&gt;id);      // the invariant, enforced here
+        }
+        if ($quantity &lt; 1) {
+            throw new InvalidQuantity($quantity);
+        }
+
+        $this-&gt;lines[] = new OrderLine($product, $quantity, $unitPrice);
+        $this-&gt;events[] = new LineAdded($this-&gt;id, $product, $quantity);
+    }
+
+    /** No setters, no public collection. Callers cannot bypass the rules above. */
+    public function lines(): array { return $this-&gt;lines; }
+}</code></pre>
+          <p>The aggregate boundary is a <b>consistency boundary</b>: everything inside is saved in one transaction and is always valid; anything outside is reached by id and becomes consistent eventually. That gives you the sizing heuristic — keep aggregates small, reference other aggregates by id rather than by object, and if a rule spans two aggregates, either they are one aggregate or the rule is eventually consistent. An <code>Order</code> holding a whole <code>Customer</code> object is the classic oversized aggregate.</p>
+          <div class="note"><b>Anemic domain model.</b> Entities that are property bags with getters and setters, and all behaviour in services. Fowler named it an anti-pattern because it takes the cost of an object model and returns none of its benefits. It is also the default shape of most framework tutorials, so expect to be asked whether you would keep it — “yes for a CRUD admin panel, no for the pricing engine” is a better answer than dogma in either direction.</div>
+          <p class="asked"><b>Asked as</b> — “How do you decide where the aggregate boundary goes?” By transactional invariant: what must be true at every commit. If two things can be briefly inconsistent without breaking the business, they belong to different aggregates and talk through events.</p>
+          <details class="quiz" id="quiz-domain-model"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">How do you decide where an aggregate boundary goes?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-1" value="a"><span>By how the tables are related.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-1" value="b"><span>By transactional invariant: what must be true at every commit. Everything inside is saved in one transaction and is always valid; anything outside is reached by id and becomes consistent eventually.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-1" value="c"><span>By what the API response needs to contain.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-1" value="d"><span>By keeping each aggregate under a fixed number of entities.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The aggregate boundary is a consistency boundary.</b> That gives the sizing heuristic directly: keep aggregates small, reference other aggregates by id, and if a rule spans two of them either they are one aggregate or the rule is eventually consistent.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What distinguishes a value object from an entity?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-2" value="a"><span>An entity is persisted; a value object is not.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-2" value="b"><span>A value object is immutable and a entity is not.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-2" value="c"><span>A value object has no identity and is equal by value; an entity has an id, is equal by id, and changes over time.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-2" value="d"><span>A value object may not contain other objects.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Identity is the dividing line, and immutability follows from it.</b> <code>Money</code>, <code>Email</code> and <code>DateRange</code> are values; <code>Order</code> and <code>Customer</code> are entities. A repository gives collection-like access to aggregate <em>roots</em> only.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Would you keep an anemic domain model?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-3" value="a"><span>Only if the entities are immutable.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-3" value="b"><span>Never — Fowler named it an anti-pattern.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-3" value="c"><span>Always — it is what every framework tutorial teaches.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-domain-model-3" value="d"><span>It depends: yes for a CRUD admin panel, no for the pricing engine.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Dogma in either direction is the weak answer.</b> The criticism is real — it takes the cost of an object model and returns none of its benefits — but a screen that edits six fields does not need a rich model, and saying which is which is the point.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="contexts">
+          <h3>Bounded contexts and the modular monolith</h3>
+          <p>A bounded context is the scope within which a term has one meaning. “Customer” in billing (a payer with a VAT number) is not “customer” in support (a person with tickets). Forcing one shared <code>Customer</code> class on both is how models become unmaintainable.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Relationship</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>Shared kernel</td><td>Two contexts share a small model deliberately. Cheap, and couples release cycles</td></tr>
+                <tr><td>Customer / supplier</td><td>Downstream's needs influence upstream's plan</td></tr>
+                <tr><td>Conformist</td><td>Downstream accepts upstream's model as-is — no translation budget</td></tr>
+                <tr><td>Anti-corruption layer</td><td>Downstream translates at the boundary to keep its own model clean</td></tr>
+                <tr><td>Published language</td><td>A shared, versioned interchange format — events, an API schema</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="versus">
+            <div>
+              <h4>Modular monolith</h4>
+              <ul>
+                <li>One deployable, hard module boundaries inside</li>
+                <li>In-process calls: no network failure modes</li>
+                <li>Transactions across modules are still possible — which is the temptation</li>
+                <li>Refactoring a boundary is a rename, not a migration</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Microservices</h4>
+              <ul>
+                <li>Independent deploy, scale and technology choice</li>
+                <li>Every call can fail, be slow, or arrive twice</li>
+                <li>No cross-service transactions — sagas and eventual consistency</li>
+                <li>Needs the operational maturity to match: tracing, contracts, CI/CD</li>
+              </ul>
+            </div>
+          </div>
+          <p>The defensible default in 2026, and the one most interviewers are hoping to hear: start as a modular monolith with boundaries you actually enforce (tooling, not discipline), and extract a service when there is a concrete pressure — independent scaling, a different runtime, or team autonomy at a size where the shared codebase is the bottleneck. Distributed systems are a cost you pay for organisational reasons at least as often as technical ones.</p>
+          <p class="asked"><b>Asked as</b> — “Would you use microservices here?” Ask what pressure would justify it, then answer. “Not yet — modular monolith with enforced boundaries, and here is the seam I would extract first if X happens” is a senior answer. “Yes, microservices scale better” is not.</p>
+          <details class="quiz" id="quiz-contexts"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What is a bounded context?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-1" value="a"><span>The scope within which a term has one meaning — “customer” in billing is not “customer” in support.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-1" value="b"><span>A transaction boundary across services.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-1" value="c"><span>The set of tables owned by one module.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-1" value="d"><span>A namespace within the application.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Forcing one shared <code>Customer</code> class on both is how models become unmaintainable.</b> The relationship patterns between contexts — shared kernel, conformist, anti-corruption layer, published language — are about how much translation you are willing to pay for.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What does a modular monolith keep that microservices give up?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-2" value="a"><span>Independent deployment.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-2" value="b"><span>In-process calls with no network failure modes, transactions that can span modules, and boundary refactoring that is a rename rather than a migration.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-2" value="c"><span>Technology choice per module.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-2" value="d"><span>Independent scaling.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Cross-module transactions are also the temptation</b> — the thing that quietly erodes the boundary you drew. That is why the boundaries have to be enforced by tooling rather than discipline.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What is the defensible default in 2026?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-3" value="a"><span>Serverless functions per use case.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-3" value="b"><span>Microservices from the start, so the boundaries are physical.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-3" value="c"><span>Start as a modular monolith with boundaries you actually enforce, and extract a service when there is a concrete pressure: independent scaling, a different runtime, or team autonomy at size.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-contexts-3" value="d"><span>A monolith with no internal modules, refactored later.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Extraction should answer a pressure you can name.</b> Microservices also demand the operational maturity to match — tracing, contracts, CI/CD — which is the cost most “we'll split it up” plans leave out.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="patterns">
+        <header>
+          <h2>Patterns</h2>
+          <span class="count">5 topics</span>
+        </header>
+        <p class="part-intro">These are the three acronyms the job ad meant, plus the two mechanisms that make them survivable in production. Each one is genuinely useful and genuinely expensive; the interview is testing whether you know both halves.</p>
+
+        <article class="topic" id="cqrs">
+          <h3>CQRS, precisely</h3>
+          <p>Command Query Responsibility Segregation: use <b>different models</b> for writing and for reading. That is all it says. It does not require event sourcing, two databases, a message bus, or eventual consistency — those are options it makes available.</p>
+          <div class="versus">
+            <div>
+              <h4>Write model</h4>
+              <ul>
+                <li>Aggregates, invariants, normalised</li>
+                <li>Loaded by id, never queried for lists</li>
+                <li>Optimised for correctness</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Read model</h4>
+              <ul>
+                <li>Flat DTOs shaped like the screen</li>
+                <li>Plain SQL, joins, no entities</li>
+                <li>Optimised for the query, denormalised freely</li>
+              </ul>
+            </div>
+          </div>
+          <pre class="code"><code class="language-php">// Read side: no ORM, no domain objects, just the shape the page needs.
+final class OrderSummaryQuery
+{
+    public function __construct(private PDO $db) {}
+
+    /** @return list&lt;OrderSummary&gt; */
+    public function forCustomer(string $customerId, int $limit): array
+    {
+        $stmt = $this-&gt;db-&gt;prepare(
+            'SELECT o.id, o.status, o.total_minor, o.currency, c.name AS customer_name,
+                    COUNT(l.id) AS line_count
+             FROM orders o
+             JOIN customers c ON c.id = o.customer_id
+             LEFT JOIN order_lines l ON l.order_id = o.id
+             WHERE o.customer_id = :customer
+             GROUP BY o.id
+             ORDER BY o.created_at DESC
+             LIMIT :limit'
+        );
+        // ... execute, map rows to readonly DTOs.
+    }
+}</code></pre>
+          <p>The cheapest useful version of CQRS is exactly this: keep Doctrine for writes, drop to SQL for reads, and stop trying to make one entity graph serve both. No extra infrastructure, most of the benefit. The expensive version — a separate read store kept up to date by events — buys independent scaling and query shapes the write store cannot serve, and costs you eventual consistency plus a projection to maintain. Introduce it per use case, never wholesale.</p>
+          <div class="note"><b>Read-your-own-writes.</b> The moment the read model is asynchronous, a user who saves and is redirected to a list may not see their change. Handle it deliberately: read from the write model immediately after a command, return the created resource in the response, or make the UI optimistic. “The projection is usually fast” is not a design.</div>
+          <p class="asked"><b>Asked as</b> — “What is CQRS and when would you use it?” Separate models for reads and writes; use it when the two have genuinely different shapes or load profiles. Say explicitly that it does not imply two databases — that distinction is what the question is usually checking.</p>
+          <details class="quiz" id="quiz-cqrs"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">What does CQRS actually require?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-1" value="a"><span>Eventual consistency between the command and query sides.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-1" value="b"><span>Two databases, kept in sync by a message bus.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-1" value="c"><span>Event sourcing as the write model.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-1" value="d"><span>Different models for writing and for reading. Nothing else — separate stores, buses and eventual consistency are options it makes available.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>That is the whole definition.</b> Saying so plainly, then naming what it <em>makes possible</em>, is the difference between having used it and having read about it.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What is the cheapest useful version of CQRS?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-2" value="a"><span>Keep the ORM for writes, drop to plain SQL returning flat DTOs for reads, and stop trying to make one entity graph serve both.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-2" value="b"><span>Duplicate every entity into a read entity.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-2" value="c"><span>A GraphQL layer over the write model.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-2" value="d"><span>A read replica of the database for all queries.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>No extra infrastructure, most of the benefit.</b> The expensive version — a separate read store maintained by events — buys independent scaling and query shapes the write store cannot serve, and costs eventual consistency plus a projection to maintain. Introduce it per use case, never wholesale.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">The read model is asynchronous and a user saves then is redirected to a list. What must the design say?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-3" value="a"><span>“The projection is usually fast.”</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-3" value="b"><span>Something deliberate: read from the write model immediately after a command, return the created resource in the response, or make the UI optimistic.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-3" value="c"><span>Block the redirect until the projection catches up.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cqrs-3" value="d"><span>Disable caching on the list endpoint.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Read-your-own-writes is a requirement, not an edge case.</b> Whichever option you pick, someone has to agree that a screen may be stale — eventual consistency is a product decision, not an implementation detail.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="events">
+          <h3>Domain events vs integration events</h3>
+          <div class="versus">
+            <div>
+              <h4>Domain event</h4>
+              <ul>
+                <li>Something meaningful happened <em>inside</em> this context</li>
+                <li>Named in the past tense: <code>OrderRefunded</code></li>
+                <li>Carries domain types, in-process</li>
+                <li>Internal — free to change with the model</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Integration event</h4>
+              <ul>
+                <li>Published <em>across</em> a boundary</li>
+                <li>Serialised, versioned, part of a public contract</li>
+                <li>Primitive fields only — no domain objects</li>
+                <li>Breaking it breaks other teams</li>
+              </ul>
+            </div>
+          </div>
+          <pre class="code"><code class="language-php">// Domain event: recorded by the aggregate, released after a successful save.
+final readonly class OrderRefunded
+{
+    public function __construct(
+        public OrderId $orderId,
+        public Money $amount,
+        public DateTimeImmutable $occurredAt,
+    ) {}
+}
+
+// Integration event: the translated, versioned shape that leaves the module.
+final readonly class OrderRefundedV1
+{
+    public function __construct(
+        public string $eventId,        // for consumer-side idempotency
+        public string $orderId,
+        public int $amountMinor,
+        public string $currency,
+        public string $occurredAt,     // RFC 3339
+    ) {}
+}</code></pre>
+          <p>Rules that keep event-driven systems from rotting: events are facts about the past, so a handler may not veto them (that is what a command is for); publish only after the transaction commits, or you will announce a refund that got rolled back; consumers must be <b>idempotent</b>, because every real broker is at-least-once; and never assume ordering across streams. Version integration events additively — add optional fields, never repurpose one — exactly as you would an API response.</p>
+          <p class="asked"><b>Asked as</b> — “Why not just call the other service directly?” Coupling and availability: a synchronous call fails when the callee is down and forces you to know who cares. The counter-question to have an answer for is the cost — debugging a flow you cannot read top to bottom, which is what distributed tracing and a well-named event log are for.</p>
+          <details class="quiz" id="quiz-events"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What is the difference between a domain event and an integration event?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-events-1" value="a"><span>Integration events are commands sent to another service.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-1" value="b"><span>Domain events are synchronous, integration events asynchronous.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-1" value="c"><span>A domain event is internal to one context, carries domain types and is free to change with the model; an integration event crosses a boundary, is serialised with primitive fields only, and is a versioned public contract.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-1" value="d"><span>Domain events are persisted; integration events are not.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The distinction is who is allowed to depend on it.</b> Leaking a domain object into a published event means every consumer now depends on your internal model — and breaking it breaks other teams.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Why may an event handler not veto the thing that happened?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-events-2" value="a"><span>Because the broker does not support negative acknowledgement.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-2" value="b"><span>Because handlers run in parallel.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-2" value="c"><span>Because handlers run after the response is sent.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-2" value="d"><span>Because an event is a fact about the past — if something needs to be allowed or refused, that is a command, not an event.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Past tense is not a naming convention, it is the semantics.</b> <code>OrderRefunded</code> already happened. The neighbouring rules: publish only after the transaction commits, or you will announce a refund that got rolled back.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Why must consumers be idempotent?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-events-3" value="a"><span>Because every real broker is at-least-once, so redelivery is normal rather than exceptional.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-3" value="b"><span>Because the publisher may retry the transaction.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-3" value="c"><span>Because handlers can run concurrently on several workers.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-events-3" value="d"><span>Because events may arrive out of order.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>At-least-once is the default you design for.</b> Also never assume ordering across streams, and version integration events additively — add optional fields, never repurpose one — exactly as you would an API response.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="outbox">
+          <h3>The outbox pattern</h3>
+          <p>You must write to the database <em>and</em> publish a message. Two systems, no shared transaction — so either can succeed alone. Doing them naively is the dual-write problem, and it produces orders with no notification, or notifications for orders that do not exist.</p>
+          <pre class="code"><code class="language-php">// Inside the same transaction as the business change: no broker involved yet.
+$this-&gt;transaction-&gt;wrap(function () use ($order) {
+    $this-&gt;orders-&gt;save($order);
+
+    foreach ($order-&gt;releaseEvents() as $event) {
+        $this-&gt;outbox-&gt;add(new OutboxMessage(
+            id: Uuid::v7(),
+            topic: 'orders.refunded.v1',
+            payload: $this-&gt;serializer-&gt;serialize($event),
+            createdAt: $this-&gt;clock-&gt;now(),
+        ));
+    }
+});
+
+// A separate worker polls (or tails the binlog) and publishes. Crash-safe:
+// the row is only marked sent after the broker acknowledges, so the failure
+// mode is a duplicate publish - which is why consumers must be idempotent.</code></pre>
+          <p>The consumer side of the same guarantee is an <b>inbox</b>: record each processed <code>eventId</code> in a table with a unique index, inside the same transaction as the side effect. A redelivered message then hits the unique violation and is skipped. Together these give you effectively-once processing on top of at-least-once delivery — the phrase to use, because “exactly-once delivery” does not exist and interviewers like hearing that said plainly.</p>
+          <p class="asked"><b>Asked as</b> — “How do you keep the database and the message broker consistent?” Transactional outbox plus an idempotent consumer. Naming the dual-write problem before the solution is what makes the answer land.</p>
+          <details class="quiz" id="quiz-outbox"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What is the dual-write problem?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-1" value="a"><span>Two services writing to the same table.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-1" value="b"><span>You must write to the database and publish a message, with no shared transaction — so either can succeed alone, producing orders with no notification or notifications for orders that do not exist.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-1" value="c"><span>A write that is applied twice after a retry.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-1" value="d"><span>Two clients updating the same aggregate concurrently.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Naming the problem before the solution is what makes the answer land.</b> The outbox fixes it by writing the message into the same database transaction as the state change, and publishing from that table afterwards.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What is the consumer-side counterpart of the outbox?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-2" value="a"><span>An acknowledgement timeout.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-2" value="b"><span>A dead letter queue.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-2" value="c"><span>An inbox: record each processed event id in a table with a unique index, inside the same transaction as the side effect, so a redelivery hits the unique violation and is skipped.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-2" value="d"><span>A message deduplication window in the broker.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Outbox on the way out, inbox on the way in.</b> Together they give you effectively-once <em>processing</em> on top of at-least-once <em>delivery</em>.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Why is “exactly-once delivery” the wrong phrase?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-3" value="a"><span>It applies only to synchronous calls.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-3" value="b"><span>It requires two-phase commit, which is not available in PHP.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-3" value="c"><span>It is correct, but only with a transactional broker.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-outbox-3" value="d"><span>It does not exist — delivery is at-least-once, and what you can build is effectively-once processing through idempotent consumers.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Interviewers like hearing that said plainly.</b> The guarantee lives in the consumer, not in the transport, and any design that assumes otherwise has an undiscovered duplicate-processing bug.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="event-sourcing">
+          <h3>Event sourcing</h3>
+          <p>Store the sequence of events as the source of truth; current state is a fold over that sequence. Not the same thing as CQRS, though they pair naturally, since an event store is a poor place to run queries.</p>
+          <pre class="code"><code class="language-php">final class Order
+{
+    private array $pending = [];
+    private int $version = 0;
+
+    public static function reconstitute(iterable $history): self
+    {
+        $order = new self();
+        foreach ($history as $event) {
+            $order-&gt;apply($event);      // no validation on replay: history is fact
+            $order-&gt;version++;
+        }
+        return $order;
+    }
+
+    public function refund(Money $amount): void
+    {
+        if ($amount-&gt;greaterThan($this-&gt;refundable())) {
+            throw new RefundExceedsBalance();     // decisions validate...
+        }
+        $this-&gt;recordThat(new OrderRefunded($this-&gt;id, $amount, $this-&gt;clock-&gt;now()));
+    }
+
+    private function apply(object $event): void   // ...applies only mutate
+    {
+        match (true) {
+            $event instanceof OrderRefunded =&gt; $this-&gt;refunded = $this-&gt;refunded-&gt;plus($event-&gt;amount),
+            $event instanceof OrderPlaced   =&gt; $this-&gt;total = $event-&gt;total,
+        };
+    }
+}</code></pre>
+          <div class="versus">
+            <div>
+              <h4>What it gives you</h4>
+              <ul>
+                <li>A complete, non-negotiable audit trail</li>
+                <li>Time travel: state as of any moment</li>
+                <li>New projections over <em>historical</em> data</li>
+                <li>Business questions answerable after the fact</li>
+              </ul>
+            </div>
+            <div>
+              <h4>What it costs</h4>
+              <ul>
+                <li>Event schema versioning, forever — you cannot migrate the past away</li>
+                <li>Snapshots once streams get long</li>
+                <li>Eventual consistency in every read</li>
+                <li>GDPR erasure against an append-only store (crypto-shredding)</li>
+                <li>A team that has to learn it before they can debug it</li>
+              </ul>
+            </div>
+          </div>
+          <p>Concurrency is handled by appending with an expected version — the event store rejects the write if the stream moved, which is optimistic locking again. Use it where the log <em>is</em> the business value: ledgers, payments, compliance-heavy workflows, anything where “why is the balance this number” must be answerable. Do not use it for a CRUD admin panel; that is the most expensive audit table ever built.</p>
+          <p class="asked"><b>Asked as</b> — “When would you not use event sourcing?” Have a concrete answer ready: when the domain has no interesting history, when the team cannot support it, or when GDPR erasure requirements make an append-only log a liability. Being able to argue <em>against</em> a pattern you understand is the strongest signal in this whole section.</p>
+          <details class="quiz" id="quiz-event-sourcing"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What is event sourcing?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-1" value="a"><span>Storing the sequence of events as the source of truth, with current state derived as a fold over that sequence.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-1" value="b"><span>Keeping an audit table alongside the entity tables.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-1" value="c"><span>CQRS with a message broker.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-1" value="d"><span>Publishing an event whenever state changes.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>It is not the same thing as CQRS</b>, though they pair naturally — an event store is a poor place to run queries, so a read model usually follows.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">How is concurrency handled in an event store?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-2" value="a"><span>With a row lock on the stream.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-2" value="b"><span>By appending with an expected version: the store rejects the write if the stream has moved — optimistic locking again.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-2" value="c"><span>By serialising all writes through a single process.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-2" value="d"><span>By last-write-wins on the timestamp.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The same pattern as an <code>ETag</code> or a version column</b>, one level down. Long streams then need snapshots so rebuilding state does not replay everything from the beginning.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">When would you <em>not</em> use event sourcing?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-3" value="a"><span>When you already use CQRS.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-3" value="b"><span>When the system has more than one writer.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-3" value="c"><span>When the domain has no interesting history, when the team cannot support it, or when GDPR erasure requirements make an append-only log a liability.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-event-sourcing-3" value="d"><span>When the data volume is large.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Being able to argue against a pattern you understand is the strongest signal in this whole section.</b> On a CRUD admin panel it is the most expensive audit table ever built; on a ledger it is the business value itself.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="sagas">
+          <h3>Sagas, process managers, eventual consistency</h3>
+          <p>A business transaction spanning several services cannot be a database transaction. A saga breaks it into local transactions, each with a <b>compensating action</b> for rollback — because you cannot undo a charge, you can only refund it.</p>
+          <div class="versus">
+            <div>
+              <h4>Choreography</h4>
+              <ul>
+                <li>Each service reacts to events, no coordinator</li>
+                <li>Loosely coupled, easy to start</li>
+                <li>No single place shows the flow</li>
+                <li>Cycles and surprises as the flow grows</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Orchestration</h4>
+              <ul>
+                <li>A process manager holds the state machine and issues commands</li>
+                <li>The flow is explicit, testable, observable</li>
+                <li>The orchestrator is a component to own and deploy</li>
+                <li>Risks becoming a god service if it accretes logic</li>
+              </ul>
+            </div>
+          </div>
+          <p>Sagas have no isolation, and that has consequences you should name unprompted: intermediate states are visible to other readers, so you need semantic locks (an order in <code>pending_payment</code>) rather than database locks, and compensations must be idempotent and able to run out of order. Timeouts are part of the design — every step needs an answer to “what if the reply never comes”, which is usually a scheduled compensation.</p>
+          <p class="asked"><b>Asked as</b> — “How do you handle a transaction across three services?” You do not; you run a saga with compensations, and you say out loud that the system is eventually consistent and that partial states are observable. Reaching for two-phase commit is the wrong answer for exactly the reasons worth explaining: it blocks, and it needs every participant to support it.</p>
+          <details class="quiz" id="quiz-sagas"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">How do you handle a transaction across three services?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-1" value="a"><span>A distributed lock held for the duration.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-1" value="b"><span>A shared database transaction via a connection pool.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-1" value="c"><span>Two-phase commit, so all three commit or none do.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-1" value="d"><span>You do not — you run a saga of local transactions with compensating actions, and you say out loud that the system is eventually consistent and partial states are observable.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>You cannot undo a charge, you can only refund it.</b> Two-phase commit is the wrong answer for reasons worth explaining: it blocks, and it needs every participant to support it.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What is the trade-off between choreography and orchestration?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-2" value="a"><span>Choreography couples loosely and is easy to start, but no single place shows the flow; orchestration makes the state machine explicit, testable and observable, at the cost of a component to own — and the risk of a god service.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-2" value="b"><span>Choreography needs a broker; orchestration does not.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-2" value="c"><span>Orchestration requires event sourcing.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-2" value="d"><span>Choreography is faster; orchestration is more reliable.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The question is where the flow lives.</b> Scattered across reactions, or in one process manager you can read. Both are legitimate; growing cycles are the usual reason teams move from the first to the second.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Sagas have no isolation. What follows from that?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-3" value="a"><span>Every step must run inside a database transaction.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-3" value="b"><span>Intermediate states are visible to other readers, so you need semantic locks — an order in <code>pending_payment</code> — rather than database locks, and compensations must be idempotent and able to run out of order.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-3" value="c"><span>Reads must be served from a snapshot.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sagas-3" value="d"><span>Only one saga may run per aggregate at a time.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Name this unprompted and the answer sounds used rather than read.</b> Timeouts are part of the design too: every step needs an answer to “what if the reply never comes”, usually a scheduled compensation.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="codebase">
+        <header>
+          <h2>In a PHP codebase</h2>
+          <span class="count">3 topics</span>
+        </header>
+
+        <article class="topic" id="structure">
+          <h3>Module layout, and enforcing it</h3>
+          <p>Organise by <b>feature</b>, not by technical layer. <code>src/Controller</code>, <code>src/Entity</code>, <code>src/Repository</code> scatters one change across three directories and tells you nothing about what the system does.</p>
+          <pre class="code"><code class="language-bash">src/
+  Billing/                        # bounded context, owns its schema
+    Domain/                       # entities, VOs, ports, domain events - zero framework imports
+      Order.php
+      Orders.php                  # the repository interface
+    Application/                  # use cases, commands, queries, handlers
+      RefundOrder.php
+    Infrastructure/               # adapters: Doctrine, HTTP clients, messaging
+      DoctrineOrders.php
+    Presentation/                 # controllers, CLI commands, message consumers
+      RefundOrderController.php
+  Support/
+    Domain/ ...
+  Shared/                         # only genuinely shared kernel: Money, Clock, ids</code></pre>
+          <p>Convention alone will not hold this. Enforce it mechanically: <b>Deptrac</b> or <b>PHPArkitect</b> in CI with rules like “<code>Billing\Domain</code> may not depend on <code>Doctrine</code>, on <code>Symfony</code>, or on <code>Support\*</code>”. Composer path repositories per module are the heavier option, and they make the boundary impossible to cross by accident since each module has its own <code>composer.json</code>.</p>
+          <pre class="code"><code class="language-php">// tests/Architecture/LayerTest.php - an architecture rule as an executable test
+public function testDomainDoesNotDependOnInfrastructure(): void
+{
+    $violations = $this-&gt;dependenciesOf('App\\Billing\\Domain')
+        -&gt;filter(fn (string $dep) =&gt; str_starts_with($dep, 'Doctrine')
+            || str_starts_with($dep, 'Symfony')
+            || str_contains($dep, '\\Infrastructure\\'));
+
+    self::assertSame([], $violations-&gt;toArray());
+}</code></pre>
+          <p class="asked"><b>Asked as</b> — “How do you stop a modular monolith turning back into a big ball of mud?” Automated boundary checks in CI. Any answer relying on code review discipline invites the follow-up “and when someone is in a hurry on a Friday?”</p>
+          <details class="quiz" id="quiz-structure"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">How should modules be organised?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-1" value="a"><span>By team ownership, matching the org chart.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-1" value="b"><span>By technical layer — <code>src/Controller</code>, <code>src/Entity</code>, <code>src/Repository</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-1" value="c"><span>By feature, so one change lives in one place and the directory listing says what the system does.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-1" value="d"><span>Alphabetically, by class name.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Layer-first layout scatters a single change across three directories and tells you nothing about the domain.</b> Feature-first puts the domain, application and infrastructure of one capability together, with the dependency rule enforced inside it.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">How do you stop a modular monolith turning back into a big ball of mud?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-2" value="a"><span>A linter configured to forbid deep imports.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-2" value="b"><span>Splitting it into microservices before it degrades.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-2" value="c"><span>Code review discipline and a documented convention.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-2" value="d"><span>Automated boundary checks in CI — Deptrac or PHPArkitect with rules like “<code>Billing\Domain</code> may not depend on Doctrine or on <code>Support\*</code>”.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Any answer relying on discipline invites the follow-up “and when someone is in a hurry on a Friday?”</b> Composer path repositories per module are the heavier option, and they make the boundary impossible to cross by accident.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What does a rule like “<code>Billing\Domain</code> may not depend on <code>Symfony</code>” actually protect?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-3" value="a"><span>The ability to test the domain without booting the framework, and to change the framework without touching the domain.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-3" value="b"><span>The module's public API surface.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-3" value="c"><span>Deployment independence.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-structure-3" value="d"><span>Build time, by reducing the autoloaded class count.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The dependency rule, mechanically enforced.</b> It is also an architecture test in its own right — the layering itself becomes something CI covers rather than something the team remembers.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="framework">
+          <h3>Framework as a detail — mapped to Symfony and Laravel</h3>
+          <p>“The framework is a detail” does not mean avoiding it. It means the framework calls your code, not the reverse — and the concrete way to show you understand that is to map the ideas onto the framework in the job ad.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Concept</th><th>Symfony</th><th>Laravel</th><th>Standard</th></tr></thead>
+              <tbody>
+                <tr><td>Wiring / DI</td><td>Service container, autowiring, compiled</td><td>Service container, service providers</td><td>PSR-11</td></tr>
+                <tr><td>Request pipeline</td><td>Kernel events, or PSR-15 middleware</td><td>Middleware stack</td><td>PSR-15</td></tr>
+                <tr><td>Events</td><td>EventDispatcher</td><td>Events &amp; listeners</td><td>PSR-14</td></tr>
+                <tr><td>Async work</td><td>Messenger (bus + transports)</td><td>Queues &amp; jobs</td><td>—</td></tr>
+                <tr><td>Persistence</td><td>Doctrine — Data Mapper</td><td>Eloquent — Active Record</td><td>—</td></tr>
+                <tr><td>Authorization</td><td>Voters</td><td>Policies &amp; gates</td><td>—</td></tr>
+                <tr><td>Logging</td><td>Monolog</td><td>Monolog</td><td>PSR-3</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note"><b>The Eloquent question.</b> Active Record couples the model to the database, which is in tension with a pure domain layer. Two honest positions: keep Eloquent models as persistence/read models and put domain behaviour in separate objects, or accept Active Record and stop pretending the domain is isolated. Both are defensible; “I would replace Eloquent with Doctrine” in a Laravel shop is usually not the answer they are hoping for. The main PHP guide's Active Record vs Data Mapper topic covers the mechanics.</div>
+          <p class="asked"><b>Asked as</b> — “How would this architecture look in Symfony?” Answer in their vocabulary: ports as interfaces autowired by the container, adapters as services, use cases behind Messenger's command bus, domain events dispatched via PSR-14 after flush. Connecting your abstractions to their stack is the move that makes the whole conversation land.</p>
+          <details class="quiz" id="quiz-framework"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What does “the framework is a detail” mean in practice?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-1" value="a"><span>Avoid the framework's features and write everything yourself.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-1" value="b"><span>The framework calls your code rather than the reverse — and the way to show you understand it is to map the ideas onto the framework in the job ad.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-1" value="c"><span>The framework can be swapped out in an afternoon.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-1" value="d"><span>Business logic should live in framework-agnostic packages published to Packagist.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>It is about the direction of the call, not about abstinence.</b> Ports as autowired interfaces, adapters as services, use cases behind Messenger's command bus, domain events dispatched via PSR-14 after flush — answer in their vocabulary.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Eloquent is Active Record, which couples the model to the database. What are the two honest positions?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-2" value="a"><span>Use Eloquent only for reads and raw SQL for writes.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-2" value="b"><span>Replace it with Doctrine, or accept an unmaintainable domain.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-2" value="c"><span>Keep Eloquent models as persistence and read models with domain behaviour in separate objects, or accept Active Record and stop pretending the domain is isolated.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-2" value="d"><span>Wrap every Eloquent model in a repository interface, which removes the coupling.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Both are defensible; pretending is not.</b> “I would replace Eloquent with Doctrine” in a Laravel shop is usually not the answer they are hoping for.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Which PSR standardises the request pipeline that Symfony and Laravel both express in their own way?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-3" value="a"><span>PSR-3</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-3" value="b"><span>PSR-11</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-3" value="c"><span>PSR-14</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-framework-3" value="d"><span>PSR-15</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>PSR-15 for middleware and request handlers.</b> The others in the same mapping: PSR-11 for the container, PSR-14 for events, PSR-3 for logging — and notably no standard at all for async work or persistence.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="testing">
+          <h3>Testing strategy per layer</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Layer</th><th>Test kind</th><th>Doubles</th><th>Speed</th></tr></thead>
+              <tbody>
+                <tr><td>Domain (entities, VOs)</td><td>Plain unit tests, no container</td><td>None — construct real objects</td><td>Milliseconds; run thousands</td></tr>
+                <tr><td>Application (use cases)</td><td>Use-case tests through the public API</td><td>In-memory adapters for ports</td><td>Fast</td></tr>
+                <tr><td>Infrastructure adapters</td><td>Integration tests against the real thing</td><td>Real database in Docker, recorded HTTP</td><td>Slow; keep the count low</td></tr>
+                <tr><td>Presentation</td><td>A thin layer of end-to-end tests</td><td>The whole stack</td><td>Slowest; only critical paths</td></tr>
+                <tr><td>Between services</td><td>Contract tests</td><td>Pact-style consumer expectations</td><td>Fast, catches breaking changes</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>The architectural payoff is that the interesting tests become the fast ones: if the domain has no framework imports, its test suite needs no kernel, no database and no fixtures. Prefer fakes (a working in-memory implementation of the port) over mocks with expectations — mocks assert on <em>how</em> the collaborator was called, which couples the test to the implementation and makes refactoring expensive. Add architecture tests as above, so the layering itself is covered.</p>
+          <p class="asked"><b>Asked as</b> — “How do you test a use case that charges a card?” In-memory <code>PaymentGateway</code> fake, in-memory repository, fixed <code>Clock</code>, assert on the resulting state and the released events. Then one integration test that the real Stripe adapter maps responses correctly — separately, and not on every commit.</p>
+          <details class="quiz" id="quiz-testing"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Why do the interesting tests become the fast ones under this architecture?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-1" value="a"><span>Because a domain with no framework imports needs no kernel, no database and no fixtures — so the tests that cover the rules run in milliseconds.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-1" value="b"><span>Because in-memory adapters are faster than Docker containers.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-1" value="c"><span>Because the test suite can be parallelised.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-1" value="d"><span>Because unit tests are always faster than integration tests.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>That is the architectural payoff, stated as a testing property.</b> Integration tests still exist for adapters, against a real database in Docker or recorded HTTP — but they stay few and slow by design.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Why prefer a fake over a mock with expectations?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-2" value="a"><span>Fakes are quicker to write.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-2" value="b"><span>A mock asserts on <em>how</em> the collaborator was called, which couples the test to the implementation and makes refactoring expensive; a fake is a working implementation you assert results against.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-2" value="c"><span>Mocks cannot be used for interfaces with several methods.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-2" value="d"><span>Fakes can be reused in production.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Test the outcome, not the choreography.</b> A working in-memory implementation of a port also doubles as the answer to “is this a real port?” from the hexagonal topic.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">How do you test a use case that charges a card?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-3" value="a"><span>Wrap it in a transaction and roll back.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-3" value="b"><span>Mock the gateway and assert <code>charge()</code> was called once.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-3" value="c"><span>In-memory <code>PaymentGateway</code> fake, in-memory repository, fixed <code>Clock</code>; assert on the resulting state and the released events — plus one separate integration test that the real adapter maps responses correctly.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-testing-3" value="d"><span>Point it at the payment provider's sandbox on every commit.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Two tests, two purposes.</b> The use-case test covers the rules and runs on every commit; the adapter test covers the mapping and does not need to.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="deciding">
+        <header>
+          <h2>Deciding</h2>
+          <span class="count">3 topics</span>
+        </header>
+
+        <article class="topic" id="tradeoffs">
+          <h3>Trade-offs, fitness functions, ADRs</h3>
+          <p>The senior part of an architecture interview is rarely “do you know CQRS”. It is whether you can say what a choice costs, how you would know it was wrong, and how the decision gets recorded.</p>
+          <p>A usable framing for any proposal, out loud, in this order: what quality attribute are we optimising (latency? deploy independence? auditability?), what are we giving up, what is the reversal cost if we are wrong, and what would we measure to find out. That last one is the <b>fitness function</b> — an automated check that the property still holds: an architecture test for the dependency rule, a performance budget in CI, an alert on projection lag.</p>
+          <pre class="code"><code class="language-bash"># docs/adr/0007-outbox-for-order-events.md
+# Status:   Accepted (2026-09-10)
+# Context:  Orders must notify billing; a direct call couples availability, and a
+#           naive publish-after-commit loses messages when the broker is down.
+# Decision: Transactional outbox in the orders schema, polled by a worker.
+# Consequences:
+#   + No dual-write inconsistency; broker downtime only delays delivery.
+#   - Duplicate publishes are possible: every consumer needs an inbox table.
+#   - One more worker to run, monitor and alert on (lag &gt; 60s pages).
+# Alternatives: 2PC (rejected: blocking, unsupported by our broker),
+#           CDC on the binlog (rejected for now: ops cost, revisit at scale).</code></pre>
+          <p>An ADR is one page in the repository, immutable once accepted, superseded rather than edited. Its real value is six months later when someone asks why — and the reason a candidate who mentions ADRs stands out is that it signals they expect to be held to decisions rather than to make them and move on.</p>
+          <p class="asked"><b>Asked as</b> — “Tell me about an architectural decision you regret.” Answer with a real one, the signal that revealed it, and what you changed. Naming the reversal cost you failed to consider beats any amount of pattern vocabulary.</p>
+          <details class="quiz" id="quiz-tradeoffs"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">What framing turns an architecture proposal into a senior answer?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-1" value="a"><span>How long it will take to implement and what it will cost.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-1" value="b"><span>Which alternatives were considered and rejected.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-1" value="c"><span>Which patterns it uses and which frameworks support them.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-1" value="d"><span>Which quality attribute it optimises, what you give up, the reversal cost if you are wrong, and what you would measure to find out.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Say it out loud, in that order.</b> The senior part of an architecture interview is rarely “do you know CQRS” — it is whether you can say what a choice costs and how you would know it was wrong.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What is a fitness function?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-2" value="a"><span>An automated check that an architectural property still holds — an architecture test for the dependency rule, a performance budget in CI, an alert on projection lag.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-2" value="b"><span>A scoring model for comparing designs.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-2" value="c"><span>A metric tracked on a dashboard.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-2" value="d"><span>A benchmark run before release.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>It is the “how would we find out” half made executable.</b> Without one, an architectural decision degrades silently until someone notices during an incident.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What is an ADR, and why does mentioning one stand out?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-3" value="a"><span>A design document reviewed before implementation; it shows planning.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-3" value="b"><span>One page in the repository, immutable once accepted and superseded rather than edited — it signals you expect to be held to decisions rather than make them and move on.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-3" value="c"><span>A record of every architectural change, updated as the design evolves.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-tradeoffs-3" value="d"><span>A template for RFCs between teams.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Its real value arrives six months later, when someone asks why.</b> Editing an accepted ADR destroys that; writing a new one that supersedes it preserves the reasoning and the date.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="migration">
+          <h3>Strangler fig, seams, anti-corruption layers</h3>
+          <p>Nobody rewrites a working system. The strangler fig pattern replaces it incrementally: put a façade in front, route one capability at a time to the new implementation, and delete the old path once traffic is gone.</p>
+          <pre class="code"><code class="language-php">// The seam: one interface, two implementations, routing controlled by a flag.
+final class RoutingInvoices implements Invoices
+{
+    public function __construct(
+        private Invoices $legacy,
+        private Invoices $rebuilt,
+        private FeatureFlags $flags,
+    ) {}
+
+    public function issue(InvoiceRequest $request): Invoice
+    {
+        if (!$this-&gt;flags-&gt;enabled('invoices.rebuilt', $request-&gt;tenantId)) {
+            return $this-&gt;legacy-&gt;issue($request);
+        }
+
+        $invoice = $this-&gt;rebuilt-&gt;issue($request);
+
+        // Optional shadow mode: run both, compare, log divergence, serve the old one
+        // until the difference rate is zero. This is how you migrate money code.
+        return $invoice;
+    }
+}</code></pre>
+          <p>Two supporting ideas do most of the work. A <b>seam</b> is a place where behaviour can be changed without editing the code around it — in PHP, an interface plus constructor injection; finding or creating seams is the first step in any legacy migration. An <b>anti-corruption layer</b> is a translation boundary that stops the legacy model leaking into the new one: the new context speaks its own language and converts at the edge. Without it, the rewrite inherits the shape it was meant to escape.</p>
+          <p class="asked"><b>Asked as</b> — “How would you modernise a ten-year-old PHP application?” Never a big-bang rewrite. Characterisation tests to pin current behaviour, a façade at the boundary, extract one capability with an ACL, migrate traffic behind a flag with shadow comparison, delete the old path. Then: pick the capability with the highest change rate first, because that is where the payback is.</p>
+          <details class="quiz" id="quiz-migration"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">How would you modernise a ten-year-old PHP application?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-1" value="a"><span>Wrap the whole application in an API gateway and build the new system alongside.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-1" value="b"><span>Freeze features and rewrite it on the current framework.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-1" value="c"><span>Characterisation tests to pin current behaviour, a façade at the boundary, extract one capability behind an anti-corruption layer, migrate traffic behind a flag with shadow comparison, delete the old path.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-1" value="d"><span>Upgrade PHP first, then refactor module by module in place.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Never a big-bang rewrite.</b> And pick the capability with the highest change rate first, because that is where the payback is — rewriting the stable part buys nothing.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">What is a seam?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-2" value="a"><span>The interface between the old and new systems during a migration.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-2" value="b"><span>A point where a transaction can be split.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-2" value="c"><span>A boundary between two bounded contexts.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-2" value="d"><span>A place where behaviour can be changed without editing the code around it — in PHP, an interface plus constructor injection.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Finding or creating seams is the first step in any legacy migration.</b> Without one, every change means editing code you cannot test, which is the trap the whole strategy exists to avoid.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What does an anti-corruption layer protect against?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-3" value="a"><span>The legacy model leaking into the new one — the new context speaks its own language and translates at the edge.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-3" value="b"><span>Cross-tenant access during a phased rollout.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-3" value="c"><span>Duplicate writes to both systems.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-migration-3" value="d"><span>Data corruption during the migration.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Without it, the rewrite inherits the shape it was meant to escape.</b> That is the most common way a strangler-fig migration ends up producing a second system with the first system's problems.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="rapid">
+          <h3>The one-liners worth having ready</h3>
+          <dl class="rapid">
+            <div><dt>Conway's law</dt><dd>System structure mirrors communication structure. The inverse manoeuvre — reshape teams to get the architecture — is a real tactic.</dd></div>
+            <div><dt>Coupling vs cohesion</dt><dd>Low coupling between modules, high cohesion within one. Every pattern here is a way to buy that.</dd></div>
+            <div><dt>CAP, honestly</dt><dd>Partitions happen, so the real choice is consistency or availability during one. “CP or AP” is a per-operation decision, not a per-database badge.</dd></div>
+            <div><dt>Idempotency everywhere</dt><dd>At-least-once delivery is the default for every broker worth using. Design the consumer accordingly.</dd></div>
+            <div><dt>Two-phase commit</dt><dd>Real, and rarely worth it: blocking, needs participant support, one slow node stalls the lot.</dd></div>
+            <div><dt>Shared database between services</dt><dd>The classic distributed monolith: independent deploys, coupled schema. Worse than a monolith.</dd></div>
+            <div><dt>Repository returns aggregates</dt><dd>Not arrays of rows, not query builders. If you need rows, that is the read side.</dd></div>
+            <div><dt>Anemic model</dt><dd>Getters, setters, logic in services. Sometimes exactly right — say when, rather than reciting the anti-pattern.</dd></div>
+            <div><dt>DTO vs value object</dt><dd>A DTO is a transport shape with no behaviour; a VO is a domain concept with invariants and equality.</dd></div>
+            <div><dt>Hexagonal ≠ folders</dt><dd>Renaming directories to <code>Domain</code>/<code>Infrastructure</code> while the entity still extends the ORM base class changes nothing.</dd></div>
+            <div><dt>Eventual consistency is a product decision</dt><dd>Someone has to accept that a screen can be stale for two seconds. Get that agreed, not assumed.</dd></div>
+            <div><dt>YAGNI vs the dependency rule</dt><dd>The rule is cheap to follow from day one and expensive to retrofit; a message bus is the opposite. Adopt accordingly.</dd></div>
+            <div><dt>Distributed tracing</dt><dd>Once flows span services or queues, a correlation id on every message is not optional.</dd></div>
+            <div><dt>The best answer to “which pattern”</dt><dd>“What is the constraint?” Architecture questions with no context are testing whether you ask.</dd></div>
+          </dl>
+          <details class="quiz" id="quiz-rapid"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What does Conway's law say, and what is the “inverse manoeuvre”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="a"><span>Systems degrade toward disorder; the answer is continuous refactoring.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="b"><span>System structure mirrors the communication structure of the organisation — and reshaping teams to get the architecture you want is a real tactic.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="c"><span>Adding people to a late project makes it later; the answer is smaller teams.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="d"><span>Modules grow to fill the time available; the answer is strict scoping.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>If three teams own one service, you will get three modules inside it.</b> The inverse manoeuvre is deliberate: change the team boundaries first and let the system follow.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What is the honest statement of CAP?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="a"><span>Availability always wins in practice.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="b"><span>You pick two of consistency, availability and partition tolerance.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="c"><span>Partitions happen, so the real choice is consistency or availability <em>during</em> one — and it is a per-operation decision, not a per-database badge.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="d"><span>Distributed systems cannot be consistent.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>“Pick two” is the version that survives in slide decks and falls apart under a follow-up.</b> The same operation-level thinking applies to eventual consistency: someone has to accept that a screen can be stale for two seconds, and that agreement is a product decision.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Why is a shared database between two services worse than a monolith?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="a"><span>Because transactions cannot span services.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="b"><span>Because migrations must be coordinated.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="c"><span>Because the connection pool becomes a bottleneck.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="d"><span>Because you get independent deploys with a coupled schema — the classic distributed monolith, with all the costs of separation and none of the isolation.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>You pay the distribution tax without buying anything.</b> In the same family of one-liners: renaming directories to <code>Domain/</code> and <code>Infrastructure/</code> while the entity still extends the ORM base class changes nothing — hexagonal is not a folder layout.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <footer class="end">
+        <p>Terminology follows Evans (bounded contexts, aggregates), Cockburn (ports and adapters), Fowler (strangler fig, anemic model) and Young (CQRS). Companion documents: the PHP OOP &amp; PSR guide for SOLID, DI and the pattern catalogue, and the HTTP &amp; API Design guide for the boundaries these modules expose.</p>
+      </footer>
+
+    </main>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup-templating.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-php.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="../assets/guide.js"></script>
+</body>
+</html>

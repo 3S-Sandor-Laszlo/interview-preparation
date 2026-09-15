@@ -1,0 +1,1430 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autentikáció és jogosultságkezelés kézikönyv</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topbar" aria-label="Kézikönyvek">
+    <a class="home" href="../index.html">PHP kézikönyvek</a>
+    <ul>
+      <li><a href="php-hu.html">PHP OOP és PSR</a></li>
+      <li><a href="http-api-hu.html">HTTP és API</a></li>
+      <li><a href="auth-hu.html" aria-current="page">Autentikáció</a></li>
+      <li><a href="architecture-hu.html">Architektúra</a></li>
+    </ul>
+  </nav>
+
+  <header class="masthead">
+    <p class="eyebrow">Interjúfelkészülés · senior szint</p>
+    <h1>Autentikáció és jogosultságkezelés</h1>
+    <p class="standfirst">Ki vagy, és mit tehetsz: munkamenet vagy JWT és mikor rossz eszköz a token, az OAuth 2.1 folyamatok, amik megmaradtak, refresh token rotáció újrafelhasználás-észleléssel, és a jogosultsági modellek, amiket meg kell tudnod védeni — mindegyikhez az a PHP, ami tényleg kell hozzá.</p>
+    <div class="meta-row">
+      <span>A <b>PHP OOP és PSR</b> kézikönyv társdokumentuma</span>
+      <span>Naprakész: <b>2026. szeptember</b></span>
+      <span><b>17</b> téma</span>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <nav class="toc" aria-label="Tartalom">
+      <div class="filter">
+        <input id="filter" type="search" placeholder="Témák szűrése…" aria-label="Témák szűrése">
+      </div>
+      <h2>Alapok</h2>
+      <ol>
+        <li><a href="#authn-authz">Hitelesítés vs jogosultság</a></li>
+        <li><a href="#passwords">Jelszótárolás</a></li>
+        <li><a href="#sessions">Munkamenetek PHP-ban</a></li>
+        <li><a href="#cookies">Süti-jelzők és SameSite</a></li>
+      </ol>
+      <h2>Tokenek</h2>
+      <ol>
+        <li><a href="#session-vs-jwt">Munkamenet vs JWT</a></li>
+        <li><a href="#jwt">A JWT felépítése</a></li>
+        <li><a href="#jwt-attacks">Hogyan törik meg a JWT-t</a></li>
+        <li><a href="#refresh">Refresh token rotáció</a></li>
+        <li><a href="#token-storage">Hová tedd a tokent</a></li>
+      </ol>
+      <h2>OAuth 2 és OIDC</h2>
+      <ol>
+        <li><a href="#oauth-roles">Szereplők és a gondolati modell</a></li>
+        <li><a href="#pkce">Authorization Code + PKCE</a></li>
+        <li><a href="#other-flows">A többi grant</a></li>
+        <li><a href="#oidc">OpenID Connect a tetején</a></li>
+      </ol>
+      <h2>Jogosultság</h2>
+      <ol>
+        <li><a href="#models">RBAC, ABAC, ReBAC</a></li>
+        <li><a href="#enforcement">Kikényszerítés PHP-ban</a></li>
+        <li><a href="#idor">IDOR és több bérlő</a></li>
+      </ol>
+      <h2>Zárás</h2>
+      <ol>
+        <li><a href="#rapid">Gyorstűz-csapdák</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <section class="part" id="foundations">
+        <header>
+          <h2>Alapok</h2>
+          <span class="count">4 téma</span>
+        </header>
+        <p class="part-intro">Minden token-kérdés végül két régebbire vezethető vissza: hol lakik a titok, és mi történik, ha kiszivárog. Kezdd itt, és a JWT-vita magától megválaszolja magát.</p>
+
+        <article class="topic" id="authn-authz">
+          <h3>Hitelesítés, jogosultság, és a harmadik</h3>
+          <div class="versus">
+            <div>
+              <h4>Hitelesítés (authentication)</h4>
+              <ul>
+                <li><em>Ki vagy?</em></li>
+                <li>Egy identitásállítást ellenőriz egy faktorral szemben</li>
+                <li>Munkamenetenként egyszer történik, egy határon</li>
+                <li>Bukás → <code>401</code> + <code>WWW-Authenticate</code></li>
+              </ul>
+            </div>
+            <div>
+              <h4>Jogosultság (authorization)</h4>
+              <ul>
+                <li><em>Megteheted ezt, ezzel?</em></li>
+                <li>Szabályt értékel ki identitásra, műveletre és erőforrásra</li>
+                <li><b>Minden</b> műveletnél lefut, az adat közelében</li>
+                <li>Bukás → <code>403</code></li>
+              </ul>
+            </div>
+          </div>
+          <p>A harmadik az <b>elszámoltathatóság</b> — az auditnyom. Ha arra a kérdésre, hogy „ki mondta le ezt a rendelést”, egy <code>updated_at</code> oszlop a válaszod, akkor nincs ilyened. A faktorok háromfélék: amit tudsz (jelszó), amid van (TOTP-eszköz, passkey, hardverkulcs), ami vagy (biometria). Az MFA különböző fajtájú faktorokat jelent; a jelszó plusz biztonsági kérdés egy faktor kétszer.</p>
+          <div class="note"><b>Ahol a jogosultságkezelés elromlik.</b> A hitelesítés határkérdés, és a middleware-be való. A jogosultság doménkérdés, és oda való, ahol az erőforrást betöltöd — az a middleware, ami megnézte, hogy „be van-e jelentkezve valaki”, nem tudhatja, hogy <em>ez</em> a felhasználó birtokolja-e <em>azt</em> a rendelést. A kettő szétválasztása erre a két helyre a kézikönyv legjobban használható szerkezeti gondolata.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Mi a különbség a 401 és a 403 között?” Aztán azonnal: „És az alkalmazásban hol dől el a kettő?” A második az igazi kérdés — aki mindkettőt ugyanabba a middleware-be teszi, az általában szállított már IDOR-t.</p>
+          <details class="quiz" id="quiz-authn-authz"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Hol a helye a hitelesítésnek és hol a jogosultságellenőrzésnek egy alkalmazásban?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-1" value="a"><span>A hitelesítésnek a határon, middleware-ben; a jogosultságnak ott, ahol az erőforrás betöltődik, mert csak ott kérdezhető meg, hogy <em>ez</em> a felhasználó hozzáérhet-e <em>ahhoz</em> a rekordhoz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-1" value="b"><span>Mindkettőnek ott, ahol az erőforrás betöltődik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-1" value="c"><span>A hitelesítésnek a controllerben, a jogosultságnak az entitásban.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-1" value="d"><span>Mindkettőnek a middleware-ben, hogy a controller tiszta maradjon.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ez a szerkezeti gondolat, amin az egész útmutató fordul.</b> Az a middleware, ami azt nézte meg, hogy „van-e bejelentkezett felhasználó”, nem tudhat a tulajdonlásról — és aki mindkettőt ugyanabba a rétegbe teszi, az rendszerint már szállított IDOR-t.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Többfaktoros hitelesítés-e a jelszó plusz egy biztonsági kérdés?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-2" value="a"><span>Igen — két külön hitelesítő adat két faktor.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-2" value="b"><span>Nem. Mindkettő „valami, amit tudsz”, tehát ugyanaz a faktor kétszer; az MFA különböző fajtájú faktorokat jelent.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-2" value="c"><span>Igen, ha a válaszok hashelve vannak.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-2" value="d"><span>Nem, mert a biztonsági kérdések elavultak.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Három fajta: valami, amit tudsz, valami, amid van, valami, ami vagy.</b> Az MFA lényege, hogy az egyik fajta feltörése nem töri fel a másikat — két tudásalapú faktor ugyanannak az adathalász oldalnak esik áldozatul.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi a „harmadik” a hitelesítés és a jogosultság mellett?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-3" value="a"><span>A hozzáférési listák.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-3" value="b"><span>Az eszköz tanúsítása.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-3" value="c"><span>Az elszámoltathatóság — az auditnyom. Ha arra, hogy „ki mondta le ezt a rendelést”, egy <code>updated_at</code> oszlop a válaszod, akkor nincs ilyened.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-authn-authz-3" value="d"><span>A nyugalmi állapotú adat titkosítása.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>AAA: authentication, authorization, accounting.</b> Az auditnyomra rendszerint egy incidens közben derül ki, hogy hiányzik — vagyis pontosan akkor, amikor már késő pótolni.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="passwords">
+          <h3>Jelszótárolás négy sorban</h3>
+          <p>A PHP az egészet odaadja; az interjú azt méri, tudod-e, melyik darab miért van ott.</p>
+          <pre class="code"><code class="language-php">// Hashelés. A sót a PHP generálja, és beleteszi a kimeneti stringbe.
+$hash = password_hash($plain, PASSWORD_ARGON2ID);   // vagy PASSWORD_DEFAULT (ma bcrypt)
+
+// Ellenőrzés. Konstans idejű összehasonlítás a származtatott hashsel — sosem ===.
+if (!password_verify($plain, $user-&gt;hash)) {
+    throw new InvalidCredentials();
+}
+
+// Átlátszó frissítés, ha emelted a költséget vagy algoritmust váltottál.
+if (password_needs_rehash($user-&gt;hash, PASSWORD_ARGON2ID)) {
+    $users-&gt;updateHash($user-&gt;id, password_hash($plain, PASSWORD_ARGON2ID));
+}</code></pre>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Fogalom</th><th>Miért van rá szükség</th></tr></thead>
+              <tbody>
+                <tr><td>Só (jelszavanként, a hash mellett tárolva)</td><td>Két azonos jelszóból különböző hash lesz; a szivárványtáblák elhalnak</td></tr>
+                <tr><td>Bors (titok, az adatbázison kívül)</td><td>Egy kiszivárgott adatbázis önmagában nem elég a töréshez. Opcionális, és kulcsrotációs probléma</td></tr>
+                <tr><td>Munkafaktor / memóriaköltség</td><td>Szándékos lassúság. Az Argon2id memóriaigényes, így a GPU-k és ASIC-ek elveszítik az előnyüket</td></tr>
+                <tr><td>A <code>bcrypt</code> 72 bájtos korlátja</td><td>A hosszabb jelszót csendben levágja — ha muszáj, előhasheld SHA-384+base64-gyel, vagy használj Argon2id-t</td></tr>
+                <tr><td>Konstans idejű összehasonlítás</td><td>A <code>password_verify</code> és a <code>hash_equals</code> nem szivárogtatja, hány bájt egyezett</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>A hash körül: korlátozd a próbálkozásokat fiókonként <em>és</em> IP-nként, exponenciálisan növekvő késleltetéssel zárolj, ne kemény tiltással (a kemény tiltás a saját felhasználóid elleni szolgáltatásmegtagadás), adj ugyanolyan általános hibaüzenetet és nagyjából ugyanolyan válaszidőt a „nincs ilyen felhasználó” és a „rossz jelszó” esetre, és az új jelszót inkább kiszivárgott-jelszó-listával vesd össze, mint hogy szimbólumot és nagybetűt követelj. A jelszó-visszaállító tokenek egyszer használhatók, rövid életűek, és <b>hashelve</b> tárolandók — jelszóval egyenértékűek.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan tárolsz jelszót?” <code>password_hash</code> Argon2id-vel, ellenőrzés <code>password_verify</code>-jal, újrahashelés belépéskor, ha változott a költség. Ha tovább kérdeznek, azt akarják hallani, hogy „a só benne van a hash-stringben, és az algoritmus szándékosan lassú”.</p>
+          <details class="quiz" id="quiz-passwords"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Miért nincs szüksége a <code>password_hash()</code>-nek külön só-oszlopra?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-1" value="a"><span>Az Argon2id nem használ sót.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-1" value="b"><span>A só a felhasználó azonosítójából származik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-1" value="c"><span>Globális alkalmazássót használ a <code>php.ini</code>-ből.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-1" value="d"><span>A jelszavankénti só, az algoritmusazonosító és a költségparaméterek mind bele vannak kódolva a visszaadott hash-sztringbe.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A kimenet önmagát írja le</b>, ettől működik a <code>password_verify()</code> anélkül, hogy bármit mondanál neki, és ettől tudja a <code>password_needs_rehash()</code> észlelni a megváltozott költséget. A sózás a szivárványtáblákat öli meg; a szándékos lassúság a nyers erőt.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi a bcrypt hírhedt korlátja?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-2" value="a"><span>A bemenet 72 bájtnál csendben csonkolódik, tehát az azutáni rész semmit nem ér.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-2" value="b"><span>Nem kezel nem ASCII jelszavakat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-2" value="c"><span>A költségfaktor nem lehet 10-nél nagyobb.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-2" value="d"><span>A hash 60 karakterben maximált.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A csendes csonkolás a veszélyes rész</b> — egy 100 karakteres jelmondat nem erősebb az első 72 bájtjánál. Ha bcrypten kell maradnod, elő-hashelj SHA-384-gyel és base64-gyel, vagy használj Argon2id-t, ami memóriaigényes, és ezért sokkal kevésbé barátságos a GPU-khoz és ASIC-ekhez.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Miért adj ugyanolyan általános hibát, nagyjából azonos időzítéssel a „nincs ilyen felhasználó” és a „rossz jelszó” esetre?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-3" value="a"><span>Hogy egyszerű maradjon a felület.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-3" value="b"><span>Mert az eltérő válaszból vagy időzítésből a támadó kilistázhatja, mely e-mail-címekhez tartozik fiók.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-3" value="c"><span>Mert a konkrét okot úgyis naplózod.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-passwords-3" value="d"><span>Mert a <code>password_verify()</code> nem tudja megkülönböztetni a két esetet.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A fiókfelderítés valódi találat</b>, és a regisztrációs meg a visszaállító űrlap ugyanolyan könnyen kiszivárogtatja, mint a bejelentkezés. A hash körül: korlátozz fiókonként és IP-nként, használj exponenciális késleltetést a kemény zárolás helyett — az saját magad elleni szolgáltatásmegtagadás —, és az új jelszavakat ellenőrizd egy kiszivárgott jelszó listával.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="sessions">
+          <h3>Munkamenetek PHP-ban</h3>
+          <p>A munkamenet egy véletlen azonosító egy sütiben, plusz szerveroldali állapot. Tervezetten állapotos, és ez az állapotosság előny: azonnal visszavonható.</p>
+          <pre class="code"><code class="language-php">// Fixáció elleni védelem: új azonosító minden jogosultságváltásnál, az adat megmarad.
+session_start();
+if ($credentialsAreValid) {
+    session_regenerate_id(true);      // true = a régi munkamenetfájl/sor törlése
+    $_SESSION['user_id'] = $user-&gt;id;
+    $_SESSION['issued_at'] = time();
+    $_SESSION['fingerprint'] = hash('sha256', $request-&gt;getHeaderLine('User-Agent'));
+}
+
+// Tétlenségi és abszolút időkorlát. Általában csak az egyik van megvalósítva; kérd mindkettőt.
+if (time() - $_SESSION['last_seen'] &gt; 1800 || time() - $_SESSION['issued_at'] &gt; 43200) {
+    session_unset();
+    session_destroy();
+    throw new SessionExpired();
+}
+$_SESSION['last_seen'] = time();</code></pre>
+          <p>A kijelentkezésnek a szerveroldali állapotot kell megszüntetnie, nem csak a sütit törölnie — különben az azonosító érvényes marad bárkinek, aki elkapta. Tárolás: a fájlok nem működnek több alkalmazásszerver között, tehát Redis, Memcached vagy adatbázistábla; az adatbázis megadja a „listázd és vond vissza az aktív munkameneteimet” funkciót, amit a termék előbb-utóbb kérni fog. Az azonosítót tárold, semmi érzékenyet, és a munkamenet-rekord legyen az a hely, ahová az incidens során kellő biztonsági metaadatot (IP, eszköz, létrehozás ideje) akasztod.</p>
+          <div class="note"><b>Munkamenet-fixáció.</b> A támadó beállít egy általa ismert munkamenet-azonosítót (egy <code>?PHPSESSID=</code> paraméteres linkkel vagy aldomain-sütivel), megvárja, míg az áldozat belép, és onnantól egy immár hitelesített munkamenetet tart a kezében. A javítás a <code>session_regenerate_id(true)</code> belépéskor; a php.ini <code>session.use_strict_mode=1</code> beállítása pedig eleve elutasítja a klienstől érkező ismeretlen azonosítókat.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Mi a munkamenet-fixáció, és hogyan előzöd meg?” Azonosító újragenerálása minden jogosultságváltásnál, strict mód bekapcsolva, és a süti úgy scope-olva, hogy aldomainek ne írhassák. Pluszpont: „és jelszóváltáskor is rotálok, majd érvénytelenítem az összes többi munkamenetet”.</p>
+          <details class="quiz" id="quiz-sessions"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Miért kell a kijelentkezésnek a szerveroldali állapotot is megsemmisítenie, nem csak a sütit törölnie?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-1" value="a"><span>Mert különben a munkamenetfájl sosem kerülne szemétgyűjtésre.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-1" value="b"><span>Mert a sütit egy proxy cache-elhette.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-1" value="c"><span>Mert a süti törlése csak egy együttműködő klienst érint — aki elkapta az azonosítót, annak továbbra is érvényes munkamenete van.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-1" value="d"><span>Mert a PHP nem tud megbízhatóan sütit törölni.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az azonosító maga a hitelesítő adat.</b> A visszavonhatóság az állapotos munkamenet teljes előnye, és csak akkor létezik, ha ténylegesen törlöd a rekordot.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Miért probléma a fájlalapú munkamenet-tárolás élesben?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-2" value="a"><span>Fájlban nem tárolhatók szerializált objektumok.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-2" value="b"><span>A fájlrendszernek nincs TTL-mechanizmusa.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-2" value="c"><span>A fájl lassabb a Redisnél.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-2" value="d"><span>Nem működik több alkalmazásszerver között; a Redis, a Memcached vagy egy adatbázistábla igen — és az adatbázis ráadásul megadja az „aktív munkameneteim listázása és visszavonása” funkciót is.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A sticky session kerülőút, nem megoldás.</b> A munkamenet-rekord ráadásul a jó hely annak a biztonsági metaadatnak — IP, eszköz, létrehozás ideje —, amire egy incidens során szükséged lesz.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mit ad a <code>session.use_strict_mode=1</code> a bejelentkezéskori azonosító-regenerálás mellé?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-3" value="a"><span>Rábírja a PHP-t, hogy elutasítsa azt a klienstől érkező munkamenet-azonosítót, amit nem ő adott ki — így a támadó eleve nem tud elhelyezni egyet.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-3" value="b"><span>Lerövidíti a munkamenet élettartamát.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-3" value="c"><span>Titkosítja a munkamenet adatait nyugalmi állapotban.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-sessions-3" value="d"><span>Kikényszeríti, hogy a süti <code>Secure</code> legyen.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Két réteg a fixation ellen.</b> A <code>session_regenerate_id(true)</code> minden jogosultságváltásnál érvényteleníti az elhelyezett azonosítót; a strict mód pedig meg sem engedi, hogy elfogadódjon. Bónusz: jelszóváltásnál is rotálj, és érvénytelenítsd az összes többi munkamenetet.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="cookies">
+          <h3>Süti-jelzők és a SameSite</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Attribútum</th><th>Mit ad</th></tr></thead>
+              <tbody>
+                <tr><td><code>HttpOnly</code></td><td>A JavaScript nem olvashatja — egy XSS-ből így nem lesz azonnal teljes fiókátvétel</td></tr>
+                <tr><td><code>Secure</code></td><td>Csak HTTPS-en. Enélkül egyetlen titkosítatlan kérés kiszivárogtatja a munkamenetet</td></tr>
+                <tr><td><code>SameSite=Lax</code></td><td>Felső szintű navigációnál elmegy, cross-site alerőforrás-kérésnél vagy űrlapnál nem. A böngésző alapértelmezése</td></tr>
+                <tr><td><code>SameSite=Strict</code></td><td>Cross-site sosem megy el — a legbiztonságosabb, de az e-mailből érkező felhasználó kijelentkezve landol</td></tr>
+                <tr><td><code>SameSite=None</code></td><td>Valódi cross-site használathoz kell, és csak <code>Secure</code>-ral együtt érvényes</td></tr>
+                <tr><td><code>__Host-</code> előtag</td><td>A böngésző kikényszeríti a <code>Secure</code>-t, a <code>/</code> path-t és a <b><code>Domain</code> hiányát</b> — így egy feltört aldomain nem tudja felülírni</td></tr>
+                <tr><td><code>Path</code> / <code>Domain</code></td><td>Hatókör. A <code>Domain</code>-t hagyd el, ha nincs tényleg szükség aldomainekre; tágítja a robbanási sugarat</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <pre class="code"><code class="language-php">session_set_cookie_params([
+    'lifetime' =&gt; 0,          // munkamenet-süti; a lejáratot amúgy is szerveroldalon kényszerítjük
+    'path'     =&gt; '/',
+    'domain'   =&gt; '',         // csak a hoszt: nincs aldomain-megosztás
+    'secure'   =&gt; true,
+    'httponly' =&gt; true,
+    'samesite' =&gt; 'Lax',
+]);
+ini_set('session.use_strict_mode', '1');
+ini_set('session.cookie_httponly', '1');
+ini_set('session.use_only_cookies', '1');   // az azonosítót sose fogadd el az URL-ből
+session_name('__Host-sid');
+session_start();</code></pre>
+          <p>A <code>SameSite=Lax</code> a klasszikus CSRF nagy részét megszünteti, de ez mélységi védelem, nem helyettesítés: nem véd a <code>GET</code>-tel kiváltott állapotváltozás ellen, nem hat egy feltört aldomainről jövő same-site kérésre, és a régebbi kliensek figyelmen kívül hagyják. Tartsd meg a szinkronizáló tokeneket (vagy a double-submit mintát) az állapotváltoztató űrlapokon, és <code>GET</code>-tel soha ne módosíts semmit.</p>
+          <p class="asked"><b>Így kérdezik</b> — „A <code>SameSite</code> miatt elhagyhatjuk a CSRF-tokent?” Nem — szűkebb támadási felület, ugyanaz a követelmény. A válasz az <em>indoklás</em> (aldomainek, régi kliensek, nem böngésző kliensek); a „nem, mert best practice” nem az.</p>
+          <details class="quiz" id="quiz-cookies"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Azt jelenti-e a <code>SameSite=Lax</code>, hogy elhagyhatók a CSRF-tokenek?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-1" value="a"><span>Igen — ez a modern helyettesítője.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-1" value="b"><span>Nem. Szűkíti a támadási felületet, de nem fedi le a <code>GET</code>-tel kiváltott állapotváltozást, a feltört aldomainről érkező azonos helyű kérést, sem a régebbi klienseket.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-1" value="c"><span>Igen, ha a süti <code>Secure</code> is.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-1" value="d"><span>Nem, de csak azért, mert egyes böngészők alapértelmezése <code>None</code>.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Mélységi védelem, nem helyettesítés.</b> A <em>miért</em> elmagyarázása maga a válasz; a „nem, mert az a best practice” nem az. Tartsd meg a szinkronizáló vagy dupla-beküldéses tokeneket az állapotváltoztató űrlapokon, és soha ne engedj <code>GET</code>-et módosítani.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mit kényszerít ki a <code>__Host-</code> süti-névprefix?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-2" value="a"><span>Hogy a süti a böngésző bezárásakor törlődjön.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-2" value="b"><span>Hogy a süti csak az origin hostra menjen ki.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-2" value="c"><span>Hogy a böngésző maga követelje meg a <code>Secure</code>-t, a <code>Path=/</code>-t és a <code>Domain</code> attribútum hiányát — így egy feltört aldomain nem tudja felülírni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-2" value="d"><span>Hogy a süti <code>HttpOnly</code> legyen.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A böngésző kényszeríti ki, és ettől hasznos.</b> A <code>Domain</code> elhagyása általában is jó gyakorlat: a beállítása minden aldomainre kiterjeszti a robbanási sugarat, beleértve azt is, amire valaki egy marketingoldalt parkolt.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Mit ad valójában a <code>HttpOnly</code>?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-3" value="a"><span>Megakadályozza, hogy a süti kereszthelyközi kérésre kimenjen.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-3" value="b"><span>Megakadályozza, hogy a süti lemezre kerüljön.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-3" value="c"><span>Megakadályozza a süti küldését sima HTTP-n.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-cookies-3" value="d"><span>A JavaScript nem tudja elolvasni, így egy XSS-en keresztüli teljes fiókátvételből kisebb probléma lesz.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Minden jelző más támadást fed le.</b> A <code>Secure</code> a csak-HTTPS — nélküle egyetlen titkosítatlan kérés kiszivárogtatja a munkamenetet —, a <code>SameSite</code> pedig a kereszthelyközi. A <code>SameSite=None</code> csak <code>Secure</code>-ral együtt érvényes.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="tokens">
+        <header>
+          <h2>Tokenek</h2>
+          <span class="count">5 téma</span>
+        </header>
+        <p class="part-intro">A JWT-beszélgetés ezen a területen a legmegbízhatóbb senior szűrő, mert a népszerű válasz („állapotmentes, tehát jól skálázódik”) pont két visszakérdezés alatt omlik össze.</p>
+
+        <article class="topic" id="session-vs-jwt">
+          <h3>Munkamenet vs JWT: a valódi kompromisszum</h3>
+          <div class="versus">
+            <div>
+              <h4>Szerveroldali munkamenet</h4>
+              <ul>
+                <li>Átlátszatlan véletlen azonosító; minden állapot a szerveren</li>
+                <li><b>A visszavonás azonnali</b> — töröld a sort</li>
+                <li>Kis süti, nincs méretnyomás</li>
+                <li>Megosztott tár kell hozzá (Redis/DB) az alkalmazásszerverek között</li>
+                <li>Minden kérés egy tárolvasásba kerül</li>
+              </ul>
+            </div>
+            <div>
+              <h4>JWT (önhordó)</h4>
+              <ul>
+                <li>A claim-ek a tokenben utaznak, aláírással ellenőrizve</li>
+                <li><b>A visszavonás a nehéz rész</b> — lejáratig érvényes</li>
+                <li>A claim-ekkel nő; minden kérésben ott van</li>
+                <li>Nem kell megosztott tár — ettől vonzó szolgáltatások között</li>
+                <li>Az ellenőrzés lokális (egy aláírás-ellenőrzés)</li>
+              </ul>
+            </div>
+          </div>
+          <p>Figyeld meg, mi <em>nincs</em> a listán: „a munkamenet nem skálázódik”. Egy Redis-olvasás ezredmásodperc alatti, és Redist szinte biztosan amúgy is futtatsz. Az őszinte megfogalmazás az, hogy a JWT a <b>visszavonhatóságot</b> cseréli el <b>függetlenségre</b> — elfogadsz egy időablakot, amiben egy kiléptetett vagy lefokozott felhasználó még átmegy az ellenőrzésen, cserébe a szolgáltatások hívás nélkül tudnak ellenőrizni. Ez a csere szolgáltatások között és bizalmi határokon megéri. Egyetlen monolitban, ami a saját böngészőklienseit szolgálja ki, általában semmit nem hoz.</p>
+          <div class="note"><b>A feketelista mint árulkodó jel.</b> A csapat felvesz egy visszavonási listát Redisben, hogy a JWT-ket érvényteleníteni lehessen — és ettől minden kérés egy megosztott tárat üt, pontosan azt a költséget, ami elől a JWT-hez menekültek, plusz az aláírás-ellenőrzést. Ha ide jutottál, sikerült a munkamenetet újraimplementálnod extra lépésekkel. A védhető középút: rövid életű access token (5–15 perc), hogy a visszavonási ablak korlátos legyen, és állapotos refresh token, amit <em>tudsz</em> visszavonni.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Munkamenet vagy JWT egy új alkalmazáshoz?” Munkamenet egy first-party webalkalmazáshoz; JWT (vagy még inkább átlátszatlan token plusz introspekció) a szolgáltatáshatárokon. Aztán nevezd meg kifejezetten a visszavonási ablakot. A „JWT, mert az állapotmentes jobban skálázódik” enélkül a leggyakoribb módja annak, hogy egy senior interjút ezen a témán elbukj.</p>
+          <details class="quiz" id="quiz-session-vs-jwt"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mit ad fel valójában a JWT a szerveroldali munkamenethez képest?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-1" value="a"><span>A visszavonhatóságot — elfogadsz egy ablakot, amiben egy kijelentkezett vagy lefokozott felhasználó még átmegy az ellenőrzésen — cserébe olyan ellenőrzésért, amihez nem kell közös tár.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-1" value="b"><span>A süti méretét, ami 4 KB-ban korlátozott.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-1" value="c"><span>Semmit; a JWT skálán egyértelműen jobb.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-1" value="d"><span>A teljesítményt, mert az aláírás-ellenőrzés lassabb egy Redis-olvasásnál.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Figyeld meg, mi <em>nincs</em> a listán: „a munkamenet nem skálázódik”.</b> Egy Redis-olvasás ezredmásodperc alatti, és Redist szinte biztosan úgyis futtatsz. A csere szolgáltatások között és bizalmi határokon megéri, egyetlen monoliton belül a saját böngészőklienseinek általában semmit nem hoz.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Egy csapat Redis-feketelistát tesz a JWT-k visszavonhatóságáért. Mit építettek?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-2" value="a"><span>Végre egy helyes visszavonási mechanizmust.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-2" value="b"><span>Munkamenetet, extra lépésekkel: mostantól minden kérés eltalál egy közös tárat — pont azt a költséget, ami elől a JWT-hez menekültek —, plusz jön egy aláírás-ellenőrzés.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-2" value="c"><span>Refresh token rotációs sémát.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-2" value="d"><span>Egy rate limitert.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A feketelista az árulkodó jel.</b> Ha azonnali visszavonásra van szükséged, az állapotos tervezés volt a helyes már az elején.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi a védhető középút?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-3" value="a"><span>Átlátszatlan tokenek, minden kérésnél introspekcióval.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-3" value="b"><span>Hosszú életű JWT-k feketelistával.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-3" value="c"><span>Rövid életű access tokenek (5–15 perc), hogy a visszavonási ablak korlátos legyen, plusz egy állapotos refresh token, amit ténylegesen vissza tudsz vonni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-session-vs-jwt-3" value="d"><span>Munkamenet a böngészőknek, JWT mindennek másnak, a két tárat szinkronban tartva.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Korlátozd az ablakot, és tartsd állapotosnak a visszavonható részt.</b> Szinte minden jól megtervezett rendszer ide fut ki, és ez az a válasz a „munkamenet vagy JWT egy új alkalmazáshoz” kérdésre, ami mindkét költség ismeretét mutatja.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="jwt">
+          <h3>A JWT felépítése</h3>
+          <p>Három base64url szegmens ponttal elválasztva: fejléc, hasznos teher, aláírás. A base64 <b>kódolás, nem titkosítás</b>: aki a tokent birtokolja, minden claimet elolvas. Az aláírt token (JWS) az integritást és az eredetet bizonyítja; a tartalmat csak a titkosított (JWE) rejti el, és JWE-t szinte senki nem használ.</p>
+          <pre class="code"><code class="language-json">{ "alg": "RS256", "typ": "JWT", "kid": "2026-09-key-1" }
+{
+  "iss": "https://auth.example.com",
+  "sub": "user_42",
+  "aud": "https://api.example.com",
+  "exp": 1789004400,
+  "nbf": 1789003500,
+  "iat": 1789003500,
+  "jti": "01JB8Z4K3Q7X",
+  "scope": "orders:read orders:write",
+  "tenant": "acme"
+}</code></pre>
+          <pre class="code"><code class="language-php">use Firebase\JWT\{JWT, Key};
+
+// Ellenőrzés: rögzítsd az algoritmust, aztán nézz meg minden számító claimet.
+$claims = JWT::decode($jwt, new Key($publicKeyForKid, 'RS256'));   // az algoritmus itt rögzül
+
+if ($claims-&gt;iss !== 'https://auth.example.com') { throw new UntrustedIssuer(); }
+if (!in_array('https://api.example.com', (array) $claims-&gt;aud, true)) { throw new WrongAudience(); }
+if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked(); }
+// Az exp / nbf ellenőrzését a könyvtár végzi; a JWT::$leeway órajel-eltérést enged (tartsd kicsin).</code></pre>
+          <div class="versus">
+            <div>
+              <h4>HS256 (szimmetrikus)</h4>
+              <ul>
+                <li>Egyetlen közös titok ír alá és ellenőriz</li>
+                <li>Rendben van, ha a kibocsátó és az ellenőrző ugyanaz a szolgáltatás</li>
+                <li>Minden ellenőrző <b>hamisítani</b> is tud</li>
+              </ul>
+            </div>
+            <div>
+              <h4>RS256 / ES256 (aszimmetrikus)</h4>
+              <ul>
+                <li>A privát kulcs ír alá, a publikus ellenőriz</li>
+                <li>Ez a helyes választás szolgáltatások és külső felek között</li>
+                <li>A publikus kulcsok egy JWKS-végponton, <code>kid</code> alapján kiválasztva — ettől lesz egyáltalán lehetséges a rotáció</li>
+              </ul>
+            </div>
+          </div>
+          <p class="asked"><b>Így kérdezik</b> — „Beleteheted a felhasználó szerepkörét a JWT-be?” Igen, és pontosan ez a visszavonási csapda: lefokozod a felhasználót, a régi token pedig lejáratig azt mondja, admin. Vagy elég rövid a token élettartama ahhoz, hogy elfogadd az ablakot, vagy szerveroldalon nézed ki a jogosultsági adatot, és a tokenben csak az identitás marad.</p>
+          <details class="quiz" id="quiz-jwt"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Mit ad egy JWT aláírása, és mit nem?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-1" value="a"><span>Csak titkosságot.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-1" value="b"><span>Semmit, hacsak a tokent JWE-vel nem titkosítod is.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-1" value="c"><span>Integritást, eredetet és titkosságot.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-1" value="d"><span>Csak integritást és eredetet — a base64 kódolás, nem titkosítás, így aki a tokent birtokolja, minden claimet elolvas.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A JWS azt bizonyítja, hogy senki nem változtatta meg; semmit nem rejt el.</b> A JWE létezik, és szinte senki nem használja — vagyis egy payloadban lévő e-mail-cím, belső azonosító vagy jogosultsághalmaz olyan adatkiadás, amit nem szándékoztál.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mikor elfogadható a HS256, és mikor kell RS256 vagy ES256?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-2" value="a"><span>HS256, ha a kibocsátó és az ellenőrző ugyanaz a szolgáltatás; aszimmetrikus, ha nem, mert egy HMAC-titok minden birtokosa tokent is tud hamisítani.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-2" value="b"><span>RS256 csak 1 KB-nál hosszabb tokenekhez.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-2" value="c"><span>HS256 szolgáltatások között, mert a közös titkot egyszerűbb elosztani.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-2" value="d"><span>A HS256 mindig elfogadható; az aszimmetrikus aláírás a tanúsítványoké.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A szimmetrikus aláírástól minden ellenőrzőből kibocsátó lesz.</b> Az aszimmetrikus felállás ráadásul rotációt is ad: a publikus kulcsok egy JWKS végponton publikálva, <code>kid</code> alapján kiválasztva.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Beteheted a felhasználó szerepkörét egy JWT-be?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-3" value="a"><span>Igen, és ez az ajánlott módja az adatbázis-lekérdezés elkerülésének.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-3" value="b"><span>Igen, és pontosan ez a visszavonási csapda: fokozd le a felhasználót, és a régi token <code>exp</code>-ig még mindig <code>admin</code>-t mond.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-3" value="c"><span>Nem, aláírt tokenben nem szerepelhet szerepkör.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-3" value="d"><span>Csak akkor, ha a token titkosított.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Vagy tartsd olyan rövidre az élettartamot, hogy elfogadd az ablakot, vagy csak identitást tegyél a tokenbe, és a jogosultsági adatot szerveroldalon keresd ki.</b> Egy jogosultsághalmaz hosszú életű tokenben az, amitől egy kirúgott munkatárs megtartja a hozzáférését.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="jwt-attacks">
+          <h3>Hogyan törik meg a JWT-t</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Támadás</th><th>Mechanizmus</th><th>Védekezés</th></tr></thead>
+              <tbody>
+                <tr><td><code>alg: none</code></td><td>A támadó leszedi az aláírást; egy naiv könyvtár elfogad egy aláíratlan tokent</td><td>Sose a token válassza az algoritmust — add meg kifejezetten, mit vársz</td></tr>
+                <tr><td>Algoritmus-összekeverés</td><td>A token RS256-ról HS256-ra váltva, a <b>publikus</b> kulccsal mint HMAC-titokkal aláírva</td><td>Rögzítsd az algoritmust kulcsonként; eltérésnél utasítsd el</td></tr>
+                <tr><td>Ellenőrzés nélküli dekódolás</td><td>A kód az aláírás-ellenőrzés előtt (vagy helyett) olvassa a claimeket</td><td>Előbb mindig ellenőrizz. Ellenőrizetlen tokenből sose bízz meg a <code>kid</code>-ben vagy az <code>iss</code>-ben</td></tr>
+                <tr><td><code>kid</code>-injektálás</td><td>A <code>kid</code> fájlútvonalként vagy SQL-értékként használva → traversal vagy injekció</td><td>A <code>kid</code> átlátszatlan keresőkulcs egy rögzített kulcshalmazban</td></tr>
+                <tr><td><code>jku</code> / <code>x5u</code> visszaélés</td><td>A fejléc a támadó által vezérelt kulcs-URL-re mutat</td><td>Hagyd figyelmen kívül ezeket a fejléceket; a JWKS URI legyen beégetve vagy engedélyezőlistán</td></tr>
+                <tr><td>Hiányzó <code>aud</code>-ellenőrzés</td><td>Az A szolgáltatásra kiadott tokent a B szolgáltatáson játsszák vissza</td><td>Ellenőrizd az <code>aud</code>-ot (és az <code>iss</code>-t) minden szolgáltatásban</td></tr>
+                <tr><td>Hosszú lejárat</td><td>Egy ellopott token napokig használható</td><td>Percek az access tokennek; az élettartamot told át egy visszavonható refresh tokenbe</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note"><b>Érzékeny adat a claimekben.</b> Egy böngészőben lévő JWT-t elolvas a felhasználó, bármi, ami XSS-t szerzett, és bármi, ami naplózza az <code>Authorization</code> fejlécet. Az e-mail-címek, belső azonosítók és jogosultsághalmazok mind nem szándékolt információszivárgások. Figyelj a méretre is: néhány kilobájtnyi claim minden kérésen összeadódik, és egyes proxyk korlátozzák a fejléc méretét.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Mi az <code>none</code> algoritmusú támadás?” Aztán az élesebb folytatás: „A könyvtárad a token fejlécéből veszi az algoritmust. Ez biztonságos?” Nem — az ellenőrzőnek kell kimondania, milyen algoritmust és kulcsot vár, mert a token támadó által vezérelt bemenet.</p>
+          <details class="quiz" id="quiz-jwt-attacks"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">A JWT-könyvtárad a token saját fejlécéből veszi az algoritmust. Biztonságos ez?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-1" value="a"><span>Csak akkor, ha a token <code>kid</code>-et is hordoz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-1" value="b"><span>Igen — pont erre való az <code>alg</code> mező.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-1" value="c"><span>Nem. A token támadó által vezérelt bemenet, tehát az ellenőrzőnek kell kimondania, melyik algoritmust és melyik kulcsot várja.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-1" value="d"><span>Igen, ha az <code>alg: none</code>-t elutasítja.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ha a token választhat, az egyszerre két támadás gyökere.</b> Az <code>alg: none</code> teljesen leveszi az aláírást; az algoritmus-összezavarás RS256-ról HS256-ra vált, és a publikus kulccsal mint HMAC-titokkal ír alá. Rögzítsd az algoritmust kulcsonként, és utasíts el minden eltérést.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Miért kell a <code>kid</code>-et egy rögzített kulcskészletbe mutató átlátszatlan keresőkulcsként kezelni?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-2" value="a"><span>Mert minden rotációnál megváltozik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-2" value="b"><span>Mert opcionális, és hiányozhat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-2" value="c"><span>Mert kis-nagybetű érzékeny.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-2" value="d"><span>Mert ellenőrizetlen támadói bemenet — fájlútvonalként használva vagy SQL-be illesztve traversal vagy injection lesz belőle.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A fejlécben minden ellenőrizetlen, amíg az aláírás nem stimmel.</b> Ugyanez az érvelés öli meg a <code>jku</code>-t és az <code>x5u</code>-t: egy támadó által vezérelt kulcs-URL-re mutató fejlécet egyszerűen figyelmen kívül kell hagyni.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi a baj azzal, ha az aláírás ellenőrzése előtt olvasol ki egy claimet?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-3" value="a"><span>Az aláírás ellenőrzéséig a claimek támadó által vezéreltek, így minden belőlük hozott döntés — beleértve azt is, melyik kulcsot vagy kibocsátót használod — hamisított adaton alapul.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-3" value="b"><span>Egy plusz base64-dekódolásba kerül.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-3" value="c"><span>Elrontja az <code>exp</code> ellenőrzését.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-jwt-attacks-3" value="d"><span>Semmi, amíg utána ellenőrzöl.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Mindig előbb ellenőrizz.</b> Az az ellenőrzés nélkül dekódoló kényelmi metódus a legtöbb könyvtárban létezik, és incidensek egész osztályának a forrása. A payload méretére is figyelj: pár kilobájtnyi claim minden kérésnél összeadódik, és egyes proxyk korlátozzák a fejlécméretet.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="refresh">
+          <h3>Refresh token rotáció és újrafelhasználás-észlelés</h3>
+          <p>A rövid életű access tokent meg kell tudni újítani új bejelentkezés nélkül. A refresh token hosszú életű, átlátszatlan, szerveroldalon hashelve tárolt — és, ez az a rész, amit az interjúk piszkálnak, <b>egyszer használatos</b>.</p>
+          <pre class="code"><code class="language-php">final class RefreshTokens
+{
+    /**
+     * Rotáció: minden felhasználás új tokent ad ki, és nyugdíjazza a régit.
+     * Ha egy nyugdíjazott token újra felbukkan, a család kompromittálódott.
+     */
+    public function rotate(string $presented): TokenPair
+    {
+        $row = $this-&gt;findByHash(hash('sha256', $presented));
+
+        if ($row === null) {
+            throw new InvalidToken();
+        }
+
+        if ($row-&gt;usedAt !== null) {
+            // Már rotált token újbóli felhasználása: vagy a jogos kliens játszotta
+            // vissza, vagy ellopták. Nem tudod megkülönböztetni — feltételezz lopást.
+            $this-&gt;revokeFamily($row-&gt;familyId);
+            throw new TokenReuseDetected();          // teljes újbóli bejelentkezés kényszerítése
+        }
+
+        if ($row-&gt;expiresAt &lt; new DateTimeImmutable()) {
+            throw new TokenExpired();
+        }
+
+        $this-&gt;markUsed($row-&gt;id);
+        $new = $this-&gt;issue($row-&gt;userId, $row-&gt;familyId);   // ugyanaz a család, új token
+
+        return new TokenPair($this-&gt;mintAccessToken($row-&gt;userId), $new);
+    }
+}</code></pre>
+          <p>A családazonosító teszi hasznossá az észlelést: egyetlen token visszavonása semmit nem állít meg, ha a támadó tovább tud rotálni, tehát az eredeti bejelentkezés minden leszármazottját vond vissza. Tegyél bele egy kis türelmi ablakot (néhány másodperc, ugyanazt az új párt visszaadva), ha vannak kliensek, amik versenyeznek a saját frissítő hívásukkal — különben egy kétfüles újratöltés kilépteti az embereket. A refresh tokeneknél lakik a „kiléptetés mindenhonnan”, az eszközlista és az abszolút munkamenet-élettartam is.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan vonsz vissza egy JWT-t?” Az access tokent nem vonod vissza; rövid életűnek tartod, és a refresh tokent vonod vissza, ami állapotos. Aztán írd le a rotációt újrafelhasználás-észleléssel — ez az a válasz, ami azt mutatja, hogy ezt építetted már, nem csak olvastál róla.</p>
+          <details class="quiz" id="quiz-refresh"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Miért kell a refresh tokennek egyszer használatosnak lennie?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-1" value="a"><span>Hogy kicsi maradjon az adatbázis.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-1" value="b"><span>Mert egy már rotált token újbóli felhasználása az a jel, hogy ellopták — és ettől lesz egyáltalán észlelhető.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-1" value="c"><span>Mert az OAuth 2.1 tiltja bármely token újrafelhasználását.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-1" value="d"><span>Mert különben az access token soha nem járna le.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A rotáció észlelhető eseménnyé teszi a lopást.</b> A jogos kliens mindig a legfrissebb tokent mutatja be; egy régi második bemutatása azt jelenti, hogy ketten birtokolják a családot.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Újrafelhasználás észlelésekor mit kell visszavonni?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-2" value="a"><span>A bemutatott tokent.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-2" value="b"><span>A bemutatott tokent és azt, ami leváltotta.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-2" value="c"><span>Az eredeti bejelentkezés minden leszármazottját — az egész tokencsaládot.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-2" value="d"><span>A felhasználó összes munkamenetét, minden eszközön.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Egy token visszavonása semmit nem állít meg, ha a támadó tovább tud rotálni.</b> A család-azonosító teszi hasznossá az észlelést. A fiók összes munkamenetének kilövése lehetőség, de rendszerint rosszabb felhasználói élmény, mint a kompromittált család lezárása.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Hogyan vonsz vissza egy JWT-t?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-3" value="a"><span>Rotálod az aláíró kulcsot, ami egyszerre érvénytelenít minden tokent.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-3" value="b"><span>Az <code>exp</code>-et a múltba állítod, és újra kibocsátasz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-3" value="c"><span>Felveszed egy feketelistára, amit minden kérésnél ellenőrzöl.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-refresh-3" value="d"><span>Az access tokent nem vonod vissza — rövid életűnek tartod, és a refresh tokent vonod vissza, ami állapotos.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Utána írd le a rotációt újrafelhasználás-észleléssel.</b> Ez az a válasz, ami mutatja, hogy építetted, nem csak olvastál róla — a néhány másodperces türelmi ablakkal együtt azoknak a klienseknek, amik versenyeztetik a saját refresh hívásaikat, hogy egy kéttabos újratöltés ne jelentkeztessen ki senkit.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="token-storage">
+          <h3>Hol tartja a böngésző</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Hely</th><th>XSS</th><th>CSRF</th><th>Ítélet</th></tr></thead>
+              <tbody>
+                <tr><td><code>localStorage</code></td><td><b>Teljesen kitett</b> — bármely befecskendezett szkript kiolvassa</td><td>Immunis (nem megy el automatikusan)</td><td>Gyakori, és a leggyengébb opció</td></tr>
+                <tr><td><code>sessionStorage</code></td><td>Ugyanaz a kitettség, rövidebb élet</td><td>Immunis</td><td>Alig jobb; ugyanaz a hibaosztály</td></tr>
+                <tr><td>JS-ből olvasható süti</td><td>Teljesen kitett</td><td>Sebezhető</td><td>Mindkettőből a rosszabbik</td></tr>
+                <tr><td><code>HttpOnly</code> + <code>Secure</code> + <code>SameSite</code> süti</td><td>Szkriptből nem olvasható</td><td>CSRF-token / <code>SameSite</code> kell hozzá</td><td><b>Alapértelmezett választás</b> first-party webkliensekhez</td></tr>
+                <tr><td>Csak memóriában</td><td>Újratöltéskor eltűnik; frissítés egy <code>HttpOnly</code> sütivel</td><td>Immunis</td><td>A legjobb olyan SPA-hoz, ami elvisel egy frissítő hívást induláskor</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>A minta, amihez a legtöbb SPA-csapat eljut: az access token egy JavaScript-változóban (soha nem perzisztálva), a refresh token egy <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Strict</code> sütiben, kizárólag a frissítő végpontra scope-olva. Betöltéskor az alkalmazás egyszer meghívja az <code>/auth/refresh</code>-t, és kap egy új access tokent. A mobil és a szerver-szerver kliens más probléma — ott a token a platform kulcstartójában vagy környezeti titokban él, és a CSRF nem értelmezett.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Biztonságos JWT-t <code>localStorage</code>-ban tárolni?” Nem igazán, és az indoklás számít: XSS-t egyedül a <code>HttpOnly</code> él túl. Akik azt válaszolják, hogy „XSS esetén amúgy is véged”, azokat a mélységi védelemről kérdezik tovább — egy ellopott token túléli a befecskendezett szkriptet, egy olvashatatlan munkamenet-süti nem.</p>
+          <details class="quiz" id="quiz-token-storage"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Biztonságos-e JWT-t <code>localStorage</code>-ban tárolni?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-1" value="a"><span>Nem igazán: bármely beszúrt script elolvassa, és a <code>HttpOnly</code> az egyetlen dolog, ami túléli az XSS-t.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-1" value="b"><span>Igen, ha a token rövid életű.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-1" value="c"><span>Nem, mert a <code>localStorage</code> megosztott az aldomainek között.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-1" value="d"><span>Igen — immunis a CSRF-re, ami a nagyobb kockázat.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az „ha XSS van, úgyis kompromittált vagy” kihívja a mélységi védelem ellenérvét:</b> az ellopott token túléli a beszúrt scriptet, és bárhonnan visszajátszható, míg egy munkamenet-süti, amit a script nem tud elolvasni, el sem hagyja a böngészőt.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Melyik mintához jut el a legtöbb SPA-csapat?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-2" value="a"><span>Mindkét token a <code>localStorage</code>-ban, kijelentkezéskor törölve.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-2" value="b"><span>Az access token egy JavaScript-változóban, soha nem perzisztálva; a refresh token egy <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Strict</code> sütiben, a refresh végpontra szűkítve — betöltéskor egy <code>/auth/refresh</code> hívással.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-2" value="c"><span>Az access token sütiben, a refresh token <code>sessionStorage</code>-ban.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-2" value="d"><span>Mindkét token memóriában, minden újratöltésnél új bejelentkezéssel.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A memóriabeli tárolás immunis az XSS-es kiszivárogtatásra és a CSRF-re is</b>, cserébe egy induláskori refresh hívásért. A hosszú életű fele a <code>HttpOnly</code> mögött ül, ahova a script nem ér el.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Melyik tárolási választás a legrosszabb mindkét szempontból?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-3" value="a"><span>A memóriabeli tárolás.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-3" value="b"><span>A <code>sessionStorage</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-3" value="c"><span>Egy JavaScriptből olvasható süti — XSS-nek kitett <em>és</em> automatikusan kiküldött, tehát CSRF-re is sebezhető.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-token-storage-3" value="d"><span>Egy <code>HttpOnly</code> süti <code>SameSite</code> nélkül.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Egyesíti a két hibamódot.</b> Vedd észre, hogy a mobil és a szerver-szerver kliensek egészen más probléma: ott a token a platform kulcstárában vagy egy környezeti titokban lakik, és a CSRF nem értelmezhető.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="oauth">
+        <header>
+          <h2>OAuth 2 és OpenID Connect</h2>
+          <span class="count">4 téma</span>
+        </header>
+        <p class="part-intro">Az OAuth delegálási protokoll, nem bejelentkezési. Az OAuth-zavar fele abból ered, hogy annak használják; a másik fele olyan folyamatokból, amiket évekkel ezelőtt kivezettek, és még mindig szerepelnek tutorialokban.</p>
+
+        <article class="topic" id="oauth-roles">
+          <h3>Szereplők és a gondolati modell</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Szereplő</th><th>Ki ez</th></tr></thead>
+              <tbody>
+                <tr><td>Erőforrás-tulajdonos</td><td>Az ember, akié az adat</td></tr>
+                <tr><td>Kliens</td><td>Az alkalmazás, ami hozzáférést kér — <b>nem</b> a felhasználó</td></tr>
+                <tr><td>Authorization server</td><td>Hitelesíti a tulajdonost, és tokent ad ki</td></tr>
+                <tr><td>Resource server</td><td>Az API, ami elfogadja az access tokent</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>A mondat, amit érdemes készenlétben tartani: <em>az OAuth azért van, hogy a felhasználó korlátozott hozzáférést adhasson egy alkalmazásnak az adataihoz anélkül, hogy odaadná a jelszavát.</em> Minden más — scope-ok, hozzájárulási képernyő, redirect URI-k — ebből következik. A kliens vagy <b>bizalmas</b> (szerver, ami titkot tud tartani), vagy <b>publikus</b> (SPA, mobilalkalmazás, bármi, ami a felhasználó eszközére kerül — az nem tud titkot tartani, akármit is mond a tutorial).</p>
+          <p>A scope-ok durva delegálási címkék (<code>orders:read</code>), nem a te jogosultsági modelled. Az authorization server azt mondja: „ez a kliens ezeken a scope-okon belül járhat el a felhasználó nevében”; hogy <em>az a felhasználó</em> hozzáérhet-e <em>ahhoz a rekordhoz</em>, azt továbbra is a te API-d dönti el. A kettő összemosásából lesznek azok az API-k, ahol egy érvényes token más adatát olvassa.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Magyarázd el az OAuth-ot egy juniornak.” Használd a parkolókulcs-hasonlatot — a kulcs elindítja az autót, de a csomagtartót nem nyitja —, aztán rögtön nevezd meg a csapdát: az OAuth arra válaszol, hogy „mit tehet ez az alkalmazás”, nem arra, hogy „ki ez a felhasználó”. Ez utóbbit az OIDC teszi hozzá.</p>
+          <details class="quiz" id="quiz-oauth-roles"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Ki az OAuth-ban a „kliens”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-1" value="a"><span>Az API, ami elfogadja a tokent.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-1" value="b"><span>Az, akié az adat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-1" value="c"><span>A felhasználó böngészője.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-1" value="d"><span>A hozzáférést kérő alkalmazás — nem a felhasználó.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A négy szereplő: erőforrás-tulajdonos (az ember), kliens (az alkalmazás), authorization server (tokent bocsát ki) és resource server (az API).</b> Az elnevezés folyamatosan félrevisz, és ha rosszul használod, onnantól minden mondat kétértelmű lesz.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mik a scope-ok, és mik nem?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-2" value="a"><span>Durva delegálási címkék — „ez a kliens ezeken a scope-okon belül járhat el a felhasználó nevében” —, és nem döntik el, hogy az a felhasználó hozzáérhet-e ahhoz a rekordhoz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-2" value="b"><span>A felhasználóhoz rendelt szerepkörök.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-2" value="c"><span>A token audience claimje.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-2" value="d"><span>A jogosultsági modelled, kérésenként kiértékelve.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A kettő összekeverésétől lesz egy API, ahol egy érvényes token más adatát olvassa.</b> Az authorization server arra válaszol, mit tehet a kliens; az objektumszintű jogosultságot az API-dnak kell megválaszolnia.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Miért „publikus” kliens egy mobilalkalmazás vagy egy SPA?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-3" value="a"><span>Mert a forráskódja nyílt.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-3" value="b"><span>Mert bármi, ami a felhasználó eszközére kerül, nem tud titkot tartani, akármit ír a tutorial.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-3" value="c"><span>Mert nincs backendje.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oauth-roles-3" value="d"><span>Mert implicit flow-t használ.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Bizalmas kliens egy szerver, ami valóban meg tud őrizni egy titkot.</b> Egy kliens-titok az alkalmazás binárisában vagy egy JavaScript-bundle-ben publikálva van — ezért lett a PKCE először épp ezeknél kötelező.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="pkce">
+          <h3>Authorization Code + PKCE — ezt kell tudni</h3>
+          <p>Az OAuth 2.1 alatt gyakorlatilag minden klienstípusnál ez a folyamat, publikusnál és bizalmasnál egyaránt. A PKCE (RFC 7636) megakadályozza, hogy az authorization code-ot elkapó támadó be tudja váltani.</p>
+          <pre class="code"><code class="language-php">// 1. A kliens generál egy nagy entrópiájú verifiert és a hozzá tartozó challenge-t.
+$verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+$challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+
+$_SESSION['pkce_verifier'] = $verifier;
+$_SESSION['oauth_state']   = $state = bin2hex(random_bytes(16));
+
+// 2. Átirányítás a felhasználóval az authorization serverre.
+$url = 'https://auth.example.com/authorize?' . http_build_query([
+    'response_type'         =&gt; 'code',
+    'client_id'             =&gt; $clientId,
+    'redirect_uri'          =&gt; 'https://app.example.com/callback',   // pontos egyezés, előre regisztrálva
+    'scope'                 =&gt; 'openid profile orders:read',
+    'state'                 =&gt; $state,                                // CSRF elleni védelem
+    'code_challenge'        =&gt; $challenge,
+    'code_challenge_method' =&gt; 'S256',                                // soha ne 'plain'
+]);</code></pre>
+          <pre class="code"><code class="language-php">// 3. A visszahíváskor: ellenőrizd a state-et, majd váltsd be a code-ot és a verifiert tokenre.
+if (!hash_equals($_SESSION['oauth_state'] ?? '', $_GET['state'] ?? '')) {
+    throw new StateMismatch();          // ez a kérés nem innen indult
+}
+
+$tokens = $http-&gt;post('https://auth.example.com/token', ['form_params' =&gt; [
+    'grant_type'    =&gt; 'authorization_code',
+    'code'          =&gt; $_GET['code'],
+    'redirect_uri'  =&gt; 'https://app.example.com/callback',
+    'client_id'     =&gt; $clientId,
+    'code_verifier' =&gt; $_SESSION['pkce_verifier'],   // bizonyítja, hogy ugyanaz a kliens
+]]);</code></pre>
+          <p>Miért számít a háttércsatornás beváltás: a code a böngészőn keresztül utazik (látszik az előzményekben, naplókban, referrerekben), a token nem. És miért kell fölé a PKCE: enélkül egy mobil operációs rendszeren ugyanarra a redirect URI-ra regisztrált rosszindulatú alkalmazás ellophatná és beválthatná a code-ot; a PKCE-vel a beváltáshoz kell az a verifier, ami sosem hagyta el a jogos klienst. A <code>state</code> és a PKCE külön problémát old meg — a <code>state</code> az átirányítás CSRF-védelme, a PKCE a code elfogása ellen véd —, tehát mindkettő kell.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mi ellen véd a PKCE, és miért ajánlott ma már bizalmas klienseknél is?” Az authorization code elfogása ellen. Azért ajánlott mindenütt, mert semmibe nem kerül, és a „ez a kliens biztonságosan tartja a titkát” olyan feltételezés, ami elég gyakran bukik ahhoz, hogy ne épüljön rá semmi.</p>
+          <details class="quiz" id="quiz-pkce"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi ellen véd a PKCE?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-1" value="a"><span>Egy rosszindulatú authorization server ellen.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-1" value="b"><span>A redirect elleni CSRF ellen.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-1" value="c"><span>Az authorization code elfogása ellen — aki elkapja a kódot, nem tudja beváltani a verifier nélkül, ami sosem hagyta el a jogos klienst.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-1" value="d"><span>A token visszajátszása ellen a resource servernél.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Kódelfogás, nem CSRF.</b> A <code>state</code> a redirect CSRF-védelme, és a kettő különböző problémát old meg — tehát mindkettőre szükség van.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Miért a böngészőn át utazik a kód, a token viszont nem?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-2" value="a"><span>Mert a token titkosított, a kód nem.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-2" value="b"><span>Mert a redirect URI nem hordozhat fragmentet.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-2" value="c"><span>Mert a tokenek túl nagyok egy URL-hez.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-2" value="d"><span>Mert a böngésző szivárog: az előzmények, a naplók és a referrerek is látják az átirányítást, ezért csak egy rövid életű, egyszer használatos kód megy oda, a tokencsere pedig hátsó csatornán zajlik.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ez a szétválasztás maga az authorization code flow lényege.</b> Egy kiszivárgott kód haszontalan a kliens-hitelesítő adat vagy a PKCE-verifier nélkül; egy kiszivárgott token működő hitelesítő adat.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Miért ajánlott a PKCE ma már bizalmas klienseknél is?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-3" value="a"><span>Mert semmibe nem kerül, és az „ez a kliens biztonságban tartja a titkát” elég gyakran bizonyul tévesnek ahhoz, hogy ne támaszkodj rá.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-3" value="b"><span>Mert a bizalmas kliensek nem használhatnak <code>state</code>-et.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-3" value="c"><span>Mert kiváltja a redirect URI ellenőrzését.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-pkce-3" value="d"><span>Mert az OAuth 2.1 megszüntette a kliens-titkokat.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Mélységi védelem nulla költséggel.</b> Az OAuth 2.1 alatt az authorization code flow PKCE-vel egyszerűen <em>a</em> folyamat, gyakorlatilag minden klienstípusra.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="other-flows">
+          <h3>A többi grant, a halottakkal együtt</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Grant</th><th>Állapot</th><th>Használat</th></tr></thead>
+              <tbody>
+                <tr><td>Authorization Code + PKCE</td><td><span class="pill ok">Használd</span></td><td>Webalkalmazások, SPA-k, mobil — alapértelmezés mindenhez, ahol felhasználó van</td></tr>
+                <tr><td>Client Credentials</td><td><span class="pill ok">Használd</span></td><td>Gép-gép. Nincs felhasználó, tehát refresh token sem kell</td></tr>
+                <tr><td>Device Authorization</td><td><span class="pill ok">Használd</span></td><td>TV-k, CLI-k, bármi böngésző vagy billentyűzet nélkül</td></tr>
+                <tr><td>Refresh Token</td><td><span class="pill ok">Használd</span></td><td>Megújítás. Rotáld, és kösd a klienshez</td></tr>
+                <tr><td>Implicit</td><td><span class="pill dep">Kivezetve a 2.1-ben</span></td><td>A token azonnal az URL-fragmentben jön vissza — előzményeken és referreren szivárog. A PKCE váltotta le</td></tr>
+                <tr><td>Resource Owner Password</td><td><span class="pill dep">Kivezetve a 2.1-ben</span></td><td>Az alkalmazás közvetlenül bekéri a jelszót, ezzel az OAuth teljes értelmét kioltva</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Az OAuth 2.1 konszolidáció, nem újratervezés: a code granthez minden kliensnek kötelező a PKCE, az implicit és a ROPC megszűnt, a refresh tokeneknek küldőhöz kötöttnek vagy rotáltnak kell lenniük, a redirect URI-knak pedig pontosan egyezniük kell (nincs joker, nincs prefixegyezés — különben a saját domainen lévő nyílt átirányításból tokenlopás lesz).</p>
+          <p class="asked"><b>Így kérdezik</b> — „Miért vezették ki az implicit flow-t?” Az access token az URL-fragmentben érkezik: böngészőelőzmények, referrer fejléc, bármely szkript az oldalon. A PKCE adott a publikus klienseknek egy biztonságos módot a code flow használatára, így az implicitnek nem maradt indoka.</p>
+          <details class="quiz" id="quiz-other-flows"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Miért szűnt meg az implicit flow az OAuth 2.1-ben?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-1" value="a"><span>Kliens-titkot igényelt, amit a publikus kliensek nem tudtak megőrizni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-1" value="b"><span>Az access token az URL fragmentjében érkezik, ahol a böngészőelőzmények, a referrer fejlécek és az oldal bármely scriptje látja — és a PKCE biztonságos utat adott a publikus klienseknek a code flow-hoz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-1" value="c"><span>Nem támogatott refresh tokent.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-1" value="d"><span>Sosem terjedt el széles körben.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Csak azért létezett, mert a publikus klienseknek nem volt biztonságos alternatívájuk.</b> Amint a PKCE betömte ezt a rést, az implicitnek nem maradt létjogosultsága. A Resource Owner Password Credentials ugyanígy járt: ha az alkalmazás maga szedi be a jelszót, az OAuth egész lényege elvész.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Melyik grant illik a felhasználó nélküli, gép-gép hívásokhoz?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-2" value="a"><span>Refresh Token</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-2" value="b"><span>Authorization Code + PKCE</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-2" value="c"><span>Client Credentials — és mivel nincs felhasználó, refresh tokent sem kell kibocsátani.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-2" value="d"><span>Device Authorization</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Nincs felhasználó, nincs delegálás, nincs refresh.</b> A Device Authorization a tévéké és a CLI-ké — bármié, aminek nincs böngészője vagy használható billentyűzete.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Miért kell a redirect URI-knak pontosan egyezniük, helyettesítő karakter és prefix-illesztés nélkül?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-3" value="a"><span>Mert az authorization server nem tud helyettesítő karaktert elemezni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-3" value="b"><span>Mert az OAuth 2.1 megszüntette az átirányítási lépést.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-3" value="c"><span>Mert a böngészők cache-elik az átirányítási célt.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-other-flows-3" value="d"><span>Mert a saját domainedre eső nyílt átirányítás különben tokenlopássá válik.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Prefix-illesztés plusz nyílt átirányítás egyenlő támadó által választott célállomás.</b> Az OAuth 2.1 konszolidáció, nem újratervezés: kötelező PKCE, megszűnt implicit és ROPC, rotált vagy küldőhöz kötött refresh tokenek, és pontos redirect-illesztés.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="oidc">
+          <h3>OpenID Connect: az identitásréteg</h3>
+          <p>Az OIDC egy vékony szabványréteg az OAuth 2 fölött, ami hozzáadja azt, amit az OAuth szándékosan kihagyott: egy ellenőrzött állítást arról, <em>ki a felhasználó</em>.</p>
+          <div class="versus">
+            <div>
+              <h4>Access token</h4>
+              <ul>
+                <li>Célközönség: az <b>API</b></li>
+                <li>A kliens számára átlátszatlan — ne bontsd ki</li>
+                <li>Azt mondja meg, mit tehet a kliens</li>
+                <li><code>Authorization: Bearer</code> fejlécben megy</li>
+              </ul>
+            </div>
+            <div>
+              <h4>ID token</h4>
+              <ul>
+                <li>Célközönség: a <b>kliens</b></li>
+                <li>Mindig JWT, és a kliensnek szánják olvasásra</li>
+                <li>Azt mondja meg, ki hitelesített, mikor és hogyan</li>
+                <li><b>Soha</b> ne küldd API-nak hitelesítő adatként</li>
+              </ul>
+            </div>
+          </div>
+          <p>A megnevezendő mozgó alkatrészek: az <code>openid</code> scope indítja az OIDC-t; a <code>nonce</code> az ID tokent a te authorization-kéréseidhez köti (visszajátszás elleni védelem, különbözik a <code>state</code>-től); a <code>/.well-known/openid-configuration</code> alatti discovery dokumentum megadja a végpontokat és a JWKS URI-t; a <code>/userinfo</code> visszaadja azokat a claimeket, amiket az ID token kihagyott. Az ID tokent aláírás, <code>iss</code>, <code>aud</code> (a te client id-d), <code>exp</code> és <code>nonce</code> ellenőrzésével validálod.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mi a különbség az access token és az ID token között?” Más a célközönség, más a rendeltetés. A csapda a folytatásban van: „nem küldhetnénk egyszerűen az ID tokent az API-nknak?” Nem — a kliensnek adták ki, tehát az API-dnak nincs alapja elfogadni, és ezzel elrontanád az audience-ellenőrzést, ami az egyetlen dolog, ami megakadályozza a token visszajátszását szolgáltatások között.</p>
+          <details class="quiz" id="quiz-oidc"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi a különbség az access token és az ID token között?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-1" value="a"><span>Eltérő audience és eltérő cél: az access token az API-nak szól, és azt mondja meg, mit tehet a kliens; az ID token a kliensnek szól, és azt mondja meg, ki hitelesített, mikor és hogyan.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-1" value="b"><span>Az ID token hosszabb életű.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-1" value="c"><span>Az access token aláírt, az ID token titkosított.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-1" value="d"><span>Az access token átlátszatlan, az ID token JWT; egyébként felcserélhetők.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az audience a választóvonal.</b> Az access token a kliens számára átlátszatlan — ne elemezd —, és <code>Authorization: Bearer</code>-ként utazik; az ID tokent a kliensnek szánták olvasásra, és soha nem küldhető hitelesítő adatként egy API-nak.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Elküldheted az ID tokent az API-dnak helyette?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-2" value="a"><span>Igen, aláírt JWT, tehát az API validálni tudja.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-2" value="b"><span>Nem — a kliensnek bocsátották ki, így az API-dnak nincs alapja elfogadni, és ezzel az audience-validálást töröd el, ami a szolgáltatások közti visszajátszást megakadályozza.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-2" value="c"><span>Igen, ha az API és a kliens ugyanazon a client id-n osztozik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-2" value="d"><span>Csak mTLS fölött.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az <code>aud</code> az egyetlen dolog, ami megakadályozza, hogy egy félnek kibocsátott tokent egy másiknál játsszanak vissza.</b> Ha egy API elfogad ID tokent, ezt dobja el.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mit csinál a <code>nonce</code>, amit a <code>state</code> nem?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-3" value="a"><span>A <code>state</code> az OIDC-hez, a <code>nonce</code> a sima OAuth-hoz való.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-3" value="b"><span>Semmit; ugyanannak az értéknek két neve.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-3" value="c"><span>A <code>nonce</code> az ID tokent köti az authorization kérésedhez visszajátszás-védelemként; a <code>state</code> a redirectet védi CSRF ellen.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-oidc-3" value="d"><span>A <code>nonce</code> titkosítja az ID tokent.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Megint két különböző támadás.</b> Egy ID tokent az aláírás, az <code>iss</code>, az <code>aud</code> (a client id-d), az <code>exp</code> és a <code>nonce</code> ellenőrzésével validálsz. Az OIDC-t az <code>openid</code> scope indítja el, a <code>/.well-known/openid-configuration</code> discovery dokumentum pedig megadja a végpontokat és a JWKS URI-t.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="authorization">
+        <header>
+          <h2>Jogosultság</h2>
+          <span class="count">3 téma</span>
+        </header>
+
+        <article class="topic" id="models">
+          <h3>RBAC, ABAC, ReBAC</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Modell</th><th>Mi alapján dönt</th><th>Mihez illik</th><th>Mikor törik meg</th></tr></thead>
+              <tbody>
+                <tr><td>RBAC</td><td>A szereplő szerepkörei</td><td>Kicsi, stabil szervezeti struktúrák</td><td>Szerepkör-robbanás: <code>editor_hu_finance_readonly</code></td></tr>
+                <tr><td>ABAC</td><td>A szereplő, az erőforrás, a művelet és a környezet attribútumai</td><td>Olyan szabályok, mint „azonos részleg, munkaidő, összeg &lt; 1M”</td><td>A szabályokat nehéz lesz átlátni és tesztelni</td></tr>
+                <tr><td>ReBAC</td><td>A szereplő és az objektum közti kapcsolatgráf</td><td>Megosztás, hierarchiák, „a szülőmappától örökölve”</td><td>Valódi motor kell hozzá (Zanzibar-stílusú) és gondos cache-invalidálás</td></tr>
+                <tr><td>ACL</td><td>Objektumonkénti lista arról, ki mit tehet</td><td>Kevés objektum, explicit engedélyek</td><td>Nem skálázódik milliós nagyságrendre</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>A gyakorlati tanács, ami tapasztaltnak hangzik: a kódban <b>jogosultságot</b> ellenőrizz, ne szerepkört. A <code>$user-&gt;can('order.refund')</code> túléli azt a napot, amikor valaki kitalál egy új szerepkört; a kétszáz helyen szétszórt <code>$user-&gt;hasRole('admin')</code> nem. A szerepkör ettől nem más, mint jogosultságok elnevezett csomagja, amit deploy nélkül lehet szerkeszteni. A legtöbb rendszer RBAC lesz néhány attribútumfeltétellel megtoldva — ez teljesen jó válasz, amíg tudatosan mondod ki.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan terveznél jogosultságokat egy több bérlős SaaS-hoz?” A jogosultság az ellenőrzés egysége, a szerepkör csomag, és mindez bérlői tagsághoz kötve, nem globálisan a felhasználóra, plusz alapból tiltás. Említsd meg, hogy egy felhasználó több bérlőhöz is tartozhat különböző szerepkörökkel — ezt a követelményt szokták elfelejteni addig, amíg drága nem lesz.</p>
+          <details class="quiz" id="quiz-models"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Miért jogosultságot ellenőrizz a kódban, ne szerepkört?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-models-1" value="a"><span>Mert az RBAC elavult az ABAC javára.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-models-1" value="b"><span>Mert a szerepkörök nem tárolhatók bérlőnként.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-models-1" value="c"><span>Mert a szerepkör lassabban kereshető ki.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-models-1" value="d"><span>Mert a <code>$user-&gt;can('order.refund')</code> túléli azt a napot, amikor valaki kitalál egy új szerepkört, a kétszáz hívási helyre szórt <code>hasRole('admin')</code> viszont nem.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A szerepkörből jogosultságok elnevezett csomagja lesz, deploy nélkül szerkeszthetően.</b> Ez az egy szokás akadályozza meg, hogy egy RBAC-rendszer megkövüljön az első szervezeti átalakításnál.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi töri meg az RBAC-ot, ahogy egy rendszer nő?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-models-2" value="a"><span>A szerepkör-robbanás — <code>editor_hu_finance_readonly</code> —, ahogy a hatókör és a képesség minden kombinációjából külön szerepkör lesz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-models-2" value="b"><span>A jogosultságkeresés költsége.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-models-2" value="c"><span>Az, hogy nem tud hierarchiát kifejezni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-models-2" value="d"><span>A felhasználók száma.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Minden új dimenzió megszorozza a szerepköröket.</b> Az ABAC attribútumok fölötti szabályokkal válaszol („azonos részleg, munkaidő, 1M alatti összeg”), és azzal fizet, hogy a policyk nehezen áttekinthetők; a ReBAC a kapcsolati gráffal válaszol, és valódi, Zanzibar-stílusú motort igényel.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Hogyan terveznél jogosultságokat egy többbérlős SaaS-hez?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-models-3" value="a"><span>Felhasználónként egy globális szerepkör, middleware-ben ellenőrizve.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-models-3" value="b"><span>A jogosultság az ellenőrzés egysége, a szerepkör csomag, a hatókör a bérlői tagságon van, nem globálisan a felhasználón, és minden alapból tiltott.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-models-3" value="c"><span>ReBAC Zanzibar-stílusú motorral az első naptól.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-models-3" value="d"><span>Objektumonként egy ACL-sor.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A követelmény, amit mindenki elfelejt, amíg drága nem lesz:</b> egy felhasználó több bérlőhöz is tartozhat, mindegyiknél más szerepkörrel. Ha a szerepkör a felhasználón lóg, nem a tagságon, ezt később lehetetlen kifejezni.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="enforcement">
+          <h3>Kikényszerítés: hol lakik az ellenőrzés</h3>
+          <p>A jogosultsághoz kézben kell lennie az erőforrásnak, tehát nem lakhat a routing middleware-ben. A minta, amitől tesztelhető marad, egy policy (Laravel) vagy voter (Symfony) objektum: erőforrástípusonként egy osztály, ami megkapja a szereplőt, a műveletet és az objektumot.</p>
+          <pre class="code"><code class="language-php">interface Policy
+{
+    public function supports(string $action, object $subject): bool;
+    public function allows(User $user, string $action, object $subject): bool;
+}
+
+final class OrderPolicy implements Policy
+{
+    public function supports(string $action, object $subject): bool
+    {
+        return $subject instanceof Order
+            &amp;&amp; in_array($action, ['view', 'update', 'refund'], true);
+    }
+
+    public function allows(User $user, string $action, object $subject): bool
+    {
+        /** @var Order $subject */
+        if (!$user-&gt;belongsToTenant($subject-&gt;tenantId)) {
+            return false;                                  // előbb a bérlői elszigetelés
+        }
+
+        return match ($action) {
+            'view'   =&gt; $user-&gt;can('order.view')   || $subject-&gt;customerId === $user-&gt;customerId,
+            'update' =&gt; $user-&gt;can('order.update') &amp;&amp; $subject-&gt;isEditable(),
+            'refund' =&gt; $user-&gt;can('order.refund') &amp;&amp; $subject-&gt;isPaid(),
+        };
+    }
+}
+
+// Egyetlen belépési pont, alapból tiltással — ismeretlen művelethez nincs policy, tehát tilos.
+final class Gate
+{
+    /** @param iterable&lt;Policy&gt; $policies */
+    public function __construct(private iterable $policies) {}
+
+    public function authorize(User $user, string $action, object $subject): void
+    {
+        foreach ($this-&gt;policies as $policy) {
+            if ($policy-&gt;supports($action, $subject)) {
+                if (!$policy-&gt;allows($user, $action, $subject)) {
+                    throw new AccessDenied();      // → 403
+                }
+                return;
+            }
+        }
+        throw new AccessDenied();                  // nincs policy = nincs jogosultság
+    }
+}</code></pre>
+          <p>Két tulajdonságtól áll meg a lábán: <b>alapból tiltás</b> (a hiányzó policy elutasít, nem enged), és <b>egyetlen belépési pont</b>, hogy minden döntést naplózhass, és HTTP indítása nélkül tesztelhesd a felhasználó × művelet × erőforrás mátrixot. Ott kényszerítsd ki, ahol az erőforrást betöltöd — és ha ugyanazt a műveletet egy háttérfeladat, egy CLI-parancs és egy controller is használja, az ellenőrzés a közös alkalmazásszolgáltatásba kerüljön, ne a controllerbe.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hová teszed a jogosultsági logikát?” Nem a controllerbe, nem az entitásba, nem a middleware-be: egy policyba, amit az alkalmazásszolgáltatás hív, alapból tiltással. Aztán mondd el, hogyan teszteled — ez választja el azokat, akik karbantartották ezt, azoktól, akik egyszer megírták.</p>
+          <details class="quiz" id="quiz-enforcement"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Miért nem lakhat a jogosultságellenőrzés a routing middleware-ben?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-1" value="a"><span>Mert a middleware minden kérésnél fut, ami túl drága.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-1" value="b"><span>Mert a middleware a munkamenet betöltése előtt fut.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-1" value="c"><span>Mert az ellenőrzéshez kézben kell lennie az erőforrásnak, a middleware pedig csak az útvonalat és a hívót ismeri.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-1" value="d"><span>Mert a middleware nem tud 403-at adni.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A „hozzáérhet-e ez a felhasználó <em>ehhez</em> az objektumhoz” kérdéshez kell az objektum.</b> A minta, amitől tesztelhető marad, egy policy (Laravel) vagy voter (Symfony): erőforrástípusonként egy osztály, ami megkapja az alanyt, a műveletet és az objektumot.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Mely két tulajdonságtól áll meg a lábán egy policy-réteg?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-2" value="a"><span>Az attribútumalapú szabályoktól és egy policy-DSL-től.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-2" value="b"><span>A szerepkör-örökléstől és a jogosultságok csoportosításától.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-2" value="c"><span>A cache-eléstől és az előre betöltéstől.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-2" value="d"><span>Az alapból tiltástól — egy hiányzó policy elutasít, nem enged — és az egyetlen belépési ponttól, amivel minden döntés naplózható, és a felhasználó × művelet × erőforrás mátrix HTTP nélkül unit-tesztelhető.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Zárt alapállapot plusz egyetlen ajtó.</b> Az egyetlen belépési ponttól lesz a jogosultság szétszórt feltételek helyett olyasmi, amit valóban tesztelni és auditálni lehet.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Egy controller, egy CLI-parancs és egy háttérfeladat is ugyanazt a műveletet hajtja végre. Hova kerül az ellenőrzés?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-3" value="a"><span>A közös alkalmazásszolgáltatásba.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-3" value="b"><span>Az entitás setterébe.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-3" value="c"><span>Middleware-be, mind a három belépési pontra alkalmazva.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-enforcement-3" value="d"><span>Mind a háromba, hiszen mindegyiknek más a hívója.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Oda tedd, ahol a művelet lakik, ne oda, ahova a kérés érkezik.</b> Ha a belépési pontok között duplikálod, garantált, hogy egyszer valamelyik ellenőrzés nélkül kerül be — ez a jogosultsági hibák szokásos eredete.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="idor">
+          <h3>IDOR, BOLA és a bérlők közti szivárgás</h3>
+          <p>A leggyakoribb súlyos API-sebezhetőség nem egzotikus: egy végpont hitelesíti a hívót, majd azonosító alapján betölt egy rekordot anélkül, hogy ellenőrizné a tulajdonlást. Az OWASP Broken Object Level Authorizationnek hívja; a régebbi anyagok IDOR-nak.</p>
+          <pre class="code"><code class="language-php">// Sebezhető: hitelesítve van, de nincs jogosultságellenőrzés.
+// Az azonosító átírásával más rendelését olvassa.
+public function show(int $id): Response
+{
+    $order = $this-&gt;orders-&gt;find($id);
+    return $this-&gt;json($order);
+}
+
+// Kétszeresen javítva: a lekérdezés a bérlőre szűkítve, majd policy az objektumra.
+public function show(int $id): Response
+{
+    $order = $this-&gt;orders-&gt;findForTenant($id, $this-&gt;currentTenantId())
+        ?? throw new NotFound();               // 404, nem 403 — ne erősítsd meg a létezést
+
+    $this-&gt;gate-&gt;authorize($this-&gt;user(), 'view', $order);
+
+    return $this-&gt;json($order);
+}</code></pre>
+          <p>A szerkezeti javítás az, hogy nehéz legyen megírni a nem biztonságos változatot: olyan repository, aminek a kereső metódusai <em>megkövetelik</em> a bérlőt, ORM-szinten alkalmazott globális lekérdezési scope, vagy bérlőnként külön kapcsolat/séma. A sorfolytonos egész azonosítók triviálissá teszik a végigpróbálást, tehát az UUIDv7 vagy egy előtaggal ellátott átlátszatlan azonosító (<code>ord_8127</code>) emeli a költséget — de ez mélységi védelem, nem jogosultságkezelés; egy kitalált azonosítót ugyanúgy el kell utasítani.</p>
+          <div class="note"><b>404 vagy 403?</b> Ha már az is szivárgás, hogy egy rekord létezik — és több bérlős rendszerben általában az —, adj <code>404</code>-et. A <code>403</code>-at azokra az erőforrásokra tartsd fenn, amikről a hívó jogosan tudhat, de nem cselekedhet velük. Legyél következetes, mert a két válasz különbsége maga is orákulum.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Egy felhasználó átírja az azonosítót az URL-ben, és egy másik ügyfél számláját látja. Mi hibázott, és hogyan előzöd meg a következőt?” Hiányzott az objektumszintű jogosultságellenőrzés. A megelőzés szerkezeti — bérlőre szűkített repositoryk plusz policy —, aztán egy teszt, ami minden végponton állítja, hogy a bérlők közti hozzáférés elbukik.</p>
+          <details class="quiz" id="quiz-idor"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Egy felhasználó átírja az azonosítót az URL-ben, és egy másik ügyfél számláját látja. Mi romlott el?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-1" value="a"><span>A hitelesítés bukott.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-1" value="b"><span>Hiányzott az objektumszintű jogosultságellenőrzés: a végpont hitelesítette a hívót, majd azonosító alapján betöltötte a rekordot a tulajdonlás ellenőrzése nélkül.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-1" value="c"><span>Az azonosítók sorfolytonosak voltak.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-1" value="d"><span>A munkamenetet nem regenerálták bejelentkezéskor.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az OWASP Broken Object Level Authorizationnek hívja; a régebbi anyagok IDOR-nak.</b> Ez a leggyakoribb súlyos API-sebezhetőség, és sosem egzotikus — egyetlen hiányzó <code>WHERE tenant_id = ?</code>.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi a szerkezeti javítás?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-2" value="a"><span>404-et adni 403 helyett.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-2" value="b"><span>Átállni UUIDv7-re, hogy az azonosítók ne legyenek kitalálhatók.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-2" value="c"><span>Nehézzé tenni a nem biztonságos változat megírását: bérlőt követelő repository-finderek, ORM-szintű globális query scope vagy bérlőnkénti séma — plusz a policy-ellenőrzés.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-2" value="d"><span>Rate limitet tenni a végpontra.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az átlátszatlan azonosító megdrágítja a felderítést, de mélységi védelem, nem jogosultság</b> — egy kitalált azonosítót akkor is el kell utasítani. A javításnak olyannak kell lennie, amit egy új végpont alapból örököl.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">A bérlők közti kérés 403-at vagy 404-et kapjon?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-3" value="a"><span>Mindig 404-et, hogy semmi ne derüljön ki.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-3" value="b"><span>Amit a keretrendszer alapból ad.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-3" value="c"><span>Mindig 403-at, hiszen a hívó hitelesített.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idor-3" value="d"><span>404-et, ha már a rekord létezésének megerősítése is szivárgás — többbérlős rendszerben rendszerint az —, és a 403-at tartsd fenn olyan erőforrásokra, amikről a hívó jogosan tudhat, de amikhez nem nyúlhat.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Légy következetes, mert a két válasz közti különbség maga is orákulum.</b> A javítás után jöjjön egy teszt, ami minden végpontra állítja, hogy a bérlők közti hozzáférés elbukik — a megelőzés szerkezeti, nem egyszeri foltozás.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="closing">
+        <header>
+          <h2>Zárás</h2>
+          <span class="count">1 téma</span>
+        </header>
+
+        <article class="topic" id="rapid">
+          <h3>Az egysorosok, amiket érdemes készenlétben tartani</h3>
+          <dl class="rapid">
+            <div><dt>A base64 nem titkosítás</dt><dd>A JWT hasznos teherében minden olvasható annak, aki a tokent birtokolja.</dd></div>
+            <div><dt><code>hash_equals</code></dt><dd>Konstans idejű stringösszehasonlítás. Tokenekhez, HMAC-ekhez és CSRF-értékekhez ez kell — a <code>===</code> időzítést szivárogtat.</dd></div>
+            <div><dt><code>random_bytes</code>, nem <code>rand</code></dt><dd>A <code>rand</code>/<code>mt_rand</code>/<code>uniqid</code> nem kriptográfiailag biztonságos. A <code>random_int</code> és a <code>random_bytes</code> igen.</dd></div>
+            <div><dt>A visszaállító tokent hashelve tárold</dt><dd>Különben a kiszivárgott tokentábla egyenlő a kiszivárgott fióktáblával. Egyszer használatos, rövid lejárat.</dd></div>
+            <div><dt>A bearer az bearer</dt><dd>Aki birtokolja a tokent, az a felhasználó. Semmi nem köti klienshez, hacsak nem teszel hozzá DPoP-ot vagy mTLS-t.</dd></div>
+            <div><dt>Kijelentkezés = szerveroldali érvénytelenítés</dt><dd>A süti törlése csak egy együttműködő klienst érint.</dd></div>
+            <div><dt>Rotálj jogosultságváltásnál</dt><dd>Új munkamenet-azonosító belépéskor, jelszóváltáskor és jogosultságemeléskor.</dd></div>
+            <div><dt>Felhasználó-felderítés</dt><dd>A „nincs ilyen e-mail” a bejelentkezésen és a regisztráción elárulja, kinek van fiókja. Ugyanaz az üzenet, ugyanaz az időzítés.</dd></div>
+            <div><dt>Az MFA faktorfajtákról szól</dt><dd>Jelszó plusz biztonsági kérdés egy faktor kétszer. A TOTP-titkok közös titkok — titkosítsd őket nyugalmi állapotban.</dd></div>
+            <div><dt>Passkey / WebAuthn</dt><dd>Origóhoz kötött nyilvános kulcsú hitelesítő adatok: adathalászat-ellenálló, nincs ellopható közös titok. Ez az irány.</dd></div>
+            <div><dt>Az API-kulcs jelszó</dt><dd>Hashelve tárold, egyszer mutasd meg, lásd el előtaggal, hogy kereshető legyen szivárgásokban, és támogass rotációt két élő kulccsal.</dd></div>
+            <div><dt>Token introspekció</dt><dd>RFC 7662. Átlátszatlan token plusz egy hívás az authorization serverre — a visszavonás azonnali, egy körbefordulás áráért.</dd></div>
+            <div><dt><code>state</code> vs <code>nonce</code></dt><dd>A <code>state</code> az átirányítást védi CSRF ellen; a <code>nonce</code> az ID tokent köti a te kérésedhez.</dd></div>
+            <div><dt>Sose írj saját kriptót</dt><dd>És a „sose írj saját autentikációt” következménye: ha muszáj, legalább a tokenformátumot ne te találd ki.</dd></div>
+          </dl>
+          <details class="quiz" id="quiz-rapid"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Miért <code>hash_equals()</code>-t használj <code>===</code> helyett tokenekhez, HMAC-ekhez és CSRF-értékekhez?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="a"><span>Mert konstans időben hasonlít, így nem szivárogtatja ki, hány kezdő bájt egyezett.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="b"><span>Mert hosszú sztringeken gyorsabb.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="c"><span>Mert előbb normalizálja a kódolást.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="d"><span>Mert helyesen kezeli a bináris sztringeket.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az időzítés oldalcsatorna.</b> Mellé: a <code>random_int()</code> és a <code>random_bytes()</code> a kriptográfiailag biztonságos generátorok — a <code>rand()</code>, az <code>mt_rand()</code> és az <code>uniqid()</code> nem —, a jelszó-visszaállító tokeneket pedig hashelve, egyszer használatosan, rövid lejárattal kell tárolni, mert jelszó-egyenértékűek.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mit jelent a „bearer”, és mi következik belőle?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="a"><span>A token azonosítja a birtokos eszközét.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="b"><span>Aki a tokent birtokolja, az a felhasználó — semmi nem köti egy adott klienshez, hacsak nem teszel mellé DPoP-ot vagy mTLS-t.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="c"><span>A tokent az <code>Authorization</code> fejlécben kell küldeni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="d"><span>A token csak egyszer használható.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Egy ellopott bearer token bárhonnan működő hitelesítő adat.</b> Pontosan ezért van szükség rövid élettartamra, <code>HttpOnly</code> tárolásra és küldőhöz kötő mechanizmusokra.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mit változtatnak a passkey-ek / a WebAuthn?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="a"><span>A jelszót a böngésző jelszókezelőjébe költöztetik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="b"><span>A jelszót hosszabb közös titokra cserélik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="c"><span>Originhez kötött publikus kulcsú hitelesítő adatok: adathalászat-ellenállók, és nincs a szerveren ellopható közös titok.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="d"><span>Második faktor, ami mellé továbbra is kell jelszó.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Semmi titok nem hagyja el a hitelesítő eszközt, és a hitelesítő adat csak azon az originen működik, amire létrehozták</b> — ettől hal meg az adathalászat. Rokon egysorosok: az API-kulcs jelszó (hashelve tárold, egyszer mutasd meg, prefixeld, hogy greppelhető legyen a szivárgásokban, és támogass két élő kulcsot a rotációhoz), az RFC 7662 token introspection pedig azonnali visszavonást ad egy körbefordulás áráért.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <footer class="end">
+        <p>A folyamatok az OAuth 2.1-et követik (az implicit és a password grant kivezetve, a PKCE kötelező) és az OpenID Connect Core-t. Társdokumentumok: a HTTP és API-tervezés kézikönyv a státuszkódokhoz és fejlécekhez, valamint a PHP OOP és PSR kézikönyv a nyelvi szintű biztonsági részhez.</p>
+      </footer>
+
+    </main>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup-templating.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-php.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../assets/guide.js"></script>
+</body>
+</html>

@@ -1,0 +1,1489 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTTP és API-tervezés kézikönyv</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topbar" aria-label="Kézikönyvek">
+    <a class="home" href="../index.html">PHP kézikönyvek</a>
+    <ul>
+      <li><a href="php-hu.html">PHP OOP és PSR</a></li>
+      <li><a href="http-api-hu.html" aria-current="page">HTTP és API</a></li>
+      <li><a href="auth-hu.html">Autentikáció</a></li>
+      <li><a href="architecture-hu.html">Architektúra</a></li>
+    </ul>
+  </nav>
+
+  <header class="masthead">
+    <p class="eyebrow">Interjúfelkészülés · senior szint</p>
+    <h1>HTTP és API-tervezés kézikönyv</h1>
+    <p class="standfirst">Az a protokollismeret, amit egy senior PHP-fejlesztőnél alapból feltételeznek, és a rá épülő tervezési döntések: erőforrásmodellezés, státuszkódok, verziózás, idempotencia, rate limiting és cache-fejlécek — mindegyikhez a legrövidebb példa, ami tényleg megmutatja a lényeget, és a kérdés, ahogy általában elhangzik.</p>
+    <div class="meta-row">
+      <span>A <b>PHP OOP és PSR</b> kézikönyv társdokumentuma</span>
+      <span>Naprakész: <b>2026. szeptember</b></span>
+      <span><b>18</b> téma</span>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <nav class="toc" aria-label="Tartalom">
+      <div class="filter">
+        <input id="filter" type="search" placeholder="Témák szűrése…" aria-label="Témák szűrése">
+      </div>
+      <h2>A protokoll</h2>
+      <ol>
+        <li><a href="#anatomy">Kérés és válasz felépítése</a></li>
+        <li><a href="#methods">Metódusok és tulajdonságaik</a></li>
+        <li><a href="#status">A státuszkódok, amiket kérdeznek</a></li>
+        <li><a href="#negotiation">Tartalomegyeztetés</a></li>
+        <li><a href="#conditional">Feltételes kérések és ETag</a></li>
+        <li><a href="#caching">Cache-fejlécek</a></li>
+      </ol>
+      <h2>Erőforrás-tervezés</h2>
+      <ol>
+        <li><a href="#resources">Erőforrás, nem RPC</a></li>
+        <li><a href="#collections">Gyűjtemények és lapozás</a></li>
+        <li><a href="#relations">Kapcsolatok és a törzs alakja</a></li>
+        <li><a href="#maturity">Richardson és HATEOAS</a></li>
+      </ol>
+      <h2>Megbízhatóság</h2>
+      <ol>
+        <li><a href="#idempotency">Idempotencia-kulcsok</a></li>
+        <li><a href="#concurrency">Optimista párhuzamosság</a></li>
+        <li><a href="#ratelimit">Rate limiting</a></li>
+        <li><a href="#errors">Hibaformátum: RFC 9457</a></li>
+      </ol>
+      <h2>Fejlődés</h2>
+      <ol>
+        <li><a href="#versioning">Verziózás és kivezetés</a></li>
+        <li><a href="#compat">Mi számít törésnek</a></li>
+        <li><a href="#psr-http">A PHP-oldal: PSR-7/15/17/18</a></li>
+      </ol>
+      <h2>Zárás</h2>
+      <ol>
+        <li><a href="#rapid">Gyorstűz-csapdák</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <section class="part" id="protocol">
+        <header>
+          <h2>A protokoll</h2>
+          <span class="count">6 téma</span>
+        </header>
+        <p class="part-intro">A legtöbb API-kérdés valójában HTTP-kérdés jelmezben. Ha pontosan meg tudod fogalmazni, mit garantál egy metódus és mit ígér a kliensnek egy státuszkód, a tervezési válaszok már következnek belőle.</p>
+
+        <article class="topic" id="anatomy">
+          <h3>Kérés és válasz felépítése</h3>
+          <p>A kérés egy metódusból, egy célból, fejlécekből és egy opcionális törzsből áll. A válasz egy státuszsorból, fejlécekből és egy opcionális törzsből. Minden más — REST, GraphQL, webhookok — csak konvenció e négy elem fölött.</p>
+          <pre class="code"><code class="language-http">POST /v1/payments HTTP/1.1
+Host: api.example.com
+Content-Type: application/json
+Idempotency-Key: 0f9c1b2e-6d31-4a55-9f0b-2b7a1c8e4d33
+Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6ImsxIn0...
+
+{"amount": 1500, "currency": "HUF"}</code></pre>
+          <pre class="code"><code class="language-http">HTTP/1.1 201 Created
+Location: /v1/payments/pay_8127
+Content-Type: application/json
+ETag: "3f1c9a"
+Cache-Control: no-store
+
+{"id": "pay_8127", "status": "succeeded", "amount": 1500}</code></pre>
+          <p>Két tulajdonságot érdemes kimondani, mert ezek magyarázzák a protokoll nagy részét: a HTTP <b>állapotmentes</b> (a szerver nem őriz kliens-kontextust két kérés között — aminek kell, annak benne kell lennie a kérésben), a fejlécek pedig <b>az üzenetről szóló metaadatok</b>, nem az erőforrásról. A HTTP/2 és a HTTP/3 a szállítást változtatja meg (bináris keretezés, multiplexelés, QUIC-en nincs fejsorbeli blokkolás), a szemantikai modellt nem.</p>
+          <p class="asked"><b>Így kérdezik</b> — „A HTTP állapotmentes, akkor hogyan működik a bejelentkezés?” Az állapot egy sütiben vagy tokenben él, amit a kliens minden kérésnél újraküld; a szerver tarthat munkamenet-tárat, de maga a <em>protokoll</em> továbbra sem emlékszik semmire két kérés között. Pontosan ezért működik egyáltalán a terheléselosztás több FPM-worker között.</p>
+          <details class="quiz" id="quiz-anatomy"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">A HTTP állapotmentes. Akkor hogyan működik a bejelentkezés?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-1" value="a"><span>Az állapot egy sütiben vagy tokenben él, amit a kliens minden kérésnél újraküld; a szerveroldali munkamenet-tár alkalmazási részlet, nem protokollelem.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-1" value="b"><span>A HTTP/2 bevezette a kapcsolatszintű munkamenet-állapotot.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-1" value="c"><span>A <code>Host</code> fejléc azonosítja a munkamenetet.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-1" value="d"><span>A szerver bejelentkezett felhasználónként nyitva tart egy kapcsolatot.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A protokoll semmit nem őriz meg kérések között.</b> Mindennek, amire a szervernek szüksége van, a kéréssel kell megérkeznie — épp ezért működik egyáltalán a terheléselosztás felcserélhető FPM-workerek között.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mit változtat meg a HTTP/2 és a HTTP/3?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-2" value="a"><span>A metódusokat és a státuszkódokat, amiket streamek köré terveztek újra.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-2" value="b"><span>Csak a szállítást — bináris keretezés, multiplexelés, QUIC-on head-of-line blokkolás nélkül —, a szemantikai modellt érintetlenül hagyva.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-2" value="c"><span>A fejlécek szintaxisát, ami JSON lett.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-2" value="d"><span>Semmit; ugyanannak a bájtsorozatnak a szállítási kódolásai.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ugyanazok a metódusok, fejlécek és státuszkódok.</b> Épp attól mondhatod, hogy a domain sharding és a sprite sheet antimintává vált a HTTP/2 alatt, hogy az API-n semmi mást nem kellett hozzá megváltoztatni.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Miről szólnak metaadatként a fejlécek?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-3" value="a"><span>A kliens munkamenetéről.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-3" value="b"><span>A megcímzett erőforrásról.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-3" value="c"><span>Magáról az üzenetről — erről a konkrét kérésről vagy válaszról.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-3" value="d"><span>A kapcsolatról.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A különbség a gyakorlatban számít.</b> A <code>Content-Type</code> azt a törzset írja le, amit épp nézel, nem az erőforrást elvontan — ezért küldhető ugyanaz az erőforrás JSON-ként vagy XML-ként, és mindegyik üzenet magát írja le.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="methods">
+          <h3>A metódusok és a három tulajdonság</h3>
+          <p>A biztonságos (safe) azt jelenti: „nincs szándékolt mellékhatás”. Az idempotens azt: „N azonos kérés ugyanabba az állapotba hozza a szervert, mint egy”. A cache-elhető azt: „a válasz újrafelhasználható újbóli kérdezés nélkül”. Ezek a kliensnek tett ígéretek, nem a controllered megfigyelt viselkedése.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Metódus</th><th>Biztonságos</th><th>Idempotens</th><th>Cache-elhető</th><th>Törzs</th></tr></thead>
+              <tbody>
+                <tr><td><code>GET</code></td><td>Igen</td><td>Igen</td><td>Igen</td><td>Nincs</td></tr>
+                <tr><td><code>HEAD</code></td><td>Igen</td><td>Igen</td><td>Igen</td><td>Nincs</td></tr>
+                <tr><td><code>OPTIONS</code></td><td>Igen</td><td>Igen</td><td>Nem</td><td>Nincs</td></tr>
+                <tr><td><code>POST</code></td><td>Nem</td><td><b>Nem</b></td><td>Ritkán (kifejezett frissesség kell hozzá)</td><td>Van</td></tr>
+                <tr><td><code>PUT</code></td><td>Nem</td><td>Igen</td><td>Nem</td><td>Van</td></tr>
+                <tr><td><code>PATCH</code></td><td>Nem</td><td><b>Nem</b> (hacsak nem így tervezed)</td><td>Nem</td><td>Van</td></tr>
+                <tr><td><code>DELETE</code></td><td>Nem</td><td>Igen</td><td>Nem</td><td>Opcionális</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="versus">
+            <div>
+              <h4>PUT</h4>
+              <ul>
+                <li>Az adott URI-n lévő erőforrás teljes cseréje</li>
+                <li>A kliens választja az URI-t; létre is hozhatja</li>
+                <li>Definíció szerint idempotens</li>
+                <li>A hiányzó mező „töröld”, nem „hagyd békén”</li>
+              </ul>
+            </div>
+            <div>
+              <h4>PATCH</h4>
+              <ul>
+                <li>Részleges módosítás, egy patch-dokumentummal leírva</li>
+                <li><code>application/merge-patch+json</code> (RFC 7386) vagy <code>application/json-patch+json</code> (RFC 6902)</li>
+                <li>Általában nem idempotens — a <code>{"op":"add","path":"/tags/-"}</code> minden alkalommal hozzáfűz</li>
+                <li>A merge patchben a <code>null</code> <b>törli</b> a mezőt</li>
+              </ul>
+            </div>
+          </div>
+          <div class="note"><b>Ez az, amin elcsúsznak.</b> A <code>DELETE</code> akkor is idempotens, ha a második hívás <code>404</code>-et ad. Az idempotencia a <em>végállapotról</em> szól, nem az azonos válaszokról. Ugyanez a logika teszi a <code>PUT</code>-ot idempotenssé, miközben egy <code>POST /orders</code>, ami minden hívásra új rendelést hoz létre, nem az.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Lehet a <code>POST</code> idempotens?” A protokoll szerint nem, ezért a kliens nem próbálhatja meg vakon újra. Egy konkrét végpontot <em>tehetsz</em> idempotenssé <code>Idempotency-Key</code>-jel — lásd a megbízhatósági részt —, de az a te szerződésed, nem a HTTP-é.</p>
+          <details class="quiz" id="quiz-methods"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">A <code>DELETE</code> idempotens akkor is, ha a második hívás <code>404</code>-et ad. Miért?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-1" value="a"><span>Mert az első válasz cache-elődik és újrajátszódik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-1" value="b"><span>Nem is idempotens; ez gyakori tévhit.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-1" value="c"><span>Mert a <code>404</code> <code>DELETE</code>-nél sikernek számít.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-1" value="d"><span>Mert az idempotencia a keletkező szerverállapotról szól, nem az azonos válaszokról.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>N azonos kérés ugyanabba az állapotba hoz, mint egy.</b> Az erőforrás így is, úgy is nincs többé. Ugyanez az érvelés teszi a <code>PUT</code>-ot idempotenssé, és a minden híváskor új rendelést létrehozó <code>POST /orders</code>-t nem azzá.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi a gyakorlati különbség a <code>PUT</code> és egy merge patch között?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-2" value="a"><span>A <code>PUT</code> teljesen lecseréli az erőforrást, így a hiányzó mező „törlést” jelent; a merge patch csak a jelen lévő tagokat érinti, és egy explicit <code>null</code> töröl egyet.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-2" value="b"><span>A <code>PATCH</code> idempotens, a <code>PUT</code> nem.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-2" value="c"><span>A <code>PUT</code>-hoz kötelező törzs, a <code>PATCH</code>-hez nem.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-2" value="d"><span>A <code>PUT</code> létrehozásra való, a <code>PATCH</code> módosításra.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A kihagyott mező szabálya a csapda.</b> Az a kliens, ami részleges dokumentumot küld <code>PUT</code>-tal, csendben letöröl mindent, amit kihagyott. Vedd észre azt is, hogy a <code>PATCH</code> általában nem idempotens — egy JSON Patch <code>{"op":"add","path":"/tags/-"}</code> minden újraküldéskor hozzáfűz.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Lehet-e a <code>POST</code> valaha idempotens?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-3" value="a"><span>Igen, valahányszor a kezelő történetesen úgy van megírva — a kliens nyugodtan újrapróbálhatja.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-3" value="b"><span>A protokoll szerint nem, tehát a kliens nem próbálhatja vakon újra; egy konkrét végpontot idempotencia-kulccsal biztonságossá tehetsz, de az a te szerződésed, nem a HTTP-é.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-3" value="c"><span>Igen, ha a válasz <code>201</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-3" value="d"><span>Nem, és semmilyen mechanizmus nem teheti azzá.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A biztonságos, idempotens és cache-elhető ígéretek a kliensnek szólnak</b>, nem megfigyelések a controlleredről. Egy általános kliens csak azt tudja, amit a metódus garantál — ezért kell a kulcsnak explicitnek és dokumentáltnak lennie.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="status">
+          <h3>A státuszkódok, amiket tényleg kérdeznek</h3>
+          <p>Senki nem azt ellenőrzi, bemagoltad-e a 226 IM Used-ot. Azokat a párokat kérdezik, amiket könnyű összekeverni, mert mindegyik pár egy tervezési döntést kódol.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Kód</th><th>Jelentés</th><th>Akkor használd</th></tr></thead>
+              <tbody>
+                <tr><td class="num">200</td><td>OK</td><td>Sikeres válasz törzzsel — beleértve azt a <code>DELETE</code>-et is, ami visszaadja a törölt állapotot</td></tr>
+                <tr><td class="num">201</td><td>Created</td><td>Új erőforrás jött létre; küldj <code>Location</code>-t</td></tr>
+                <tr><td class="num">202</td><td>Accepted</td><td>Sorba került, még nincs kész. Mutass egy állapot-erőforrásra — ez az őszinte válasz aszinkron munkára</td></tr>
+                <tr><td class="num">204</td><td>No Content</td><td>Siker, szándékosan törzs nélkül (tipikus <code>DELETE</code>, vagy olyan <code>PUT</code>, aminek nincs mit visszaadnia)</td></tr>
+                <tr><td class="num">301 / 308</td><td>Véglegesen áthelyezve</td><td>A 308 megőrzi a metódust; a 301-nél a kliensek hagyományosan <code>POST</code>-ból <code>GET</code>-re váltottak</td></tr>
+                <tr><td class="num">303 / 307</td><td>See Other / Temporary</td><td>A 303 <code>GET</code>-re küldi a klienst; a 307 megtartja a metódust és a törzset</td></tr>
+                <tr><td class="num">304</td><td>Not Modified</td><td>Válasz feltételes <code>GET</code>-re; nincs törzs, az újraérvényesítés sikerült</td></tr>
+                <tr><td class="num">400</td><td>Bad Request</td><td>Formailag hibás — értelmezhetetlen JSON, hiányzó kötelező paraméter</td></tr>
+                <tr><td class="num">401</td><td>Unauthorized</td><td>Valójában <em>nem hitelesített</em>. Kötelező <code>WWW-Authenticate</code> fejléc</td></tr>
+                <tr><td class="num">403</td><td>Forbidden</td><td>Hitelesítve van, tudjuk ki, mégsem szabad. Újbóli belépés nem segít</td></tr>
+                <tr><td class="num">404</td><td>Not Found</td><td>Nincs ilyen erőforrás — és akkor is ez a helyes válasz, ha maga a létezés bizalmas</td></tr>
+                <tr><td class="num">405</td><td>Method Not Allowed</td><td>Az URI létezik, az ige nem. Kötelező <code>Allow</code> fejléc</td></tr>
+                <tr><td class="num">409</td><td>Conflict</td><td>Állapotütközés: duplikált egyedi kulcs, vagy elavult verzióra épülő módosítás</td></tr>
+                <tr><td class="num">410</td><td>Gone</td><td>Létezett, és szándékosan megszűnt — hasznos kivezetett API-verzióknál</td></tr>
+                <tr><td class="num">412</td><td>Precondition Failed</td><td>Az <code>If-Match</code> nem egyezett — az optimista zárolás elutasította az írást</td></tr>
+                <tr><td class="num">415</td><td>Unsupported Media Type</td><td>Olyan törzstípus, amit nem fogadsz el</td></tr>
+                <tr><td class="num">422</td><td>Unprocessable Content</td><td>Szintaktikailag rendben, tartalmilag érvénytelen — ez a validációs hibakód</td></tr>
+                <tr><td class="num">428</td><td>Precondition Required</td><td>Megköveteled az <code>If-Match</code>-et, és a kliens nem küldött — így nem lehet vakon felülírni</td></tr>
+                <tr><td class="num">429</td><td>Too Many Requests</td><td>Rate limit. Küldj <code>Retry-After</code>-t</td></tr>
+                <tr><td class="num">500</td><td>Internal Server Error</td><td>A te hibád. Soha ne szivárogtass stack trace-t</td></tr>
+                <tr><td class="num">502 / 503 / 504</td><td>Bad Gateway / Unavailable / Timeout</td><td>Az upstream hibás / te vagy leállva vagy túlterhelve / az upstream túl lassú. A 503-hoz jár <code>Retry-After</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note"><b>400 vagy 422.</b> Ha a parser akadt el, az <code>400</code>. Ha a dokumentum értelmezhető volt, de a te szabályaidon bukott el — „a záró dátum korábbi a kezdőnél”, „hibás IBAN-ellenőrzőösszeg” —, az <code>422</code>. Van csapat, ami mindkettőre <code>400</code>-at ad; ez védhető, de mondd ki tudatosan, ne véletlenül alakuljon így.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Lejárt tokenre 401 vagy 403?” <code>401</code>, <code>WWW-Authenticate</code>-tel, mert az újbóli hitelesítés megoldja. A <code>403</code> azt jelenti, hogy a hitelesítéssel nincs baj, és a válasz mégis nem. A folytatás általában: „és ha érvényes a token, csak hiányzik egy scope?” — <code>403</code>.</p>
+          <details class="quiz" id="quiz-status"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">A kérés törzse rendben elemződött, de megbukott az üzleti szabályokon — „a záró dátum korábbi a kezdőnél”. Melyik státusz?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-status-1" value="a"><span>500 Internal Server Error</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-1" value="b"><span>400 Bad Request</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-1" value="c"><span>422 Unprocessable Content</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-1" value="d"><span>409 Conflict</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A 400 azt jelenti, az elemző akadt el; a 422 azt, hogy a dokumentumot megértettük és elutasítottuk.</b> Mindkettőre 400-at használni védhető döntés — de mondd ki szándékosan, ne véletlenül alakuljon úgy.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Egy érvényes token lejárt. Ez 401 vagy 403?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-status-2" value="a"><span>403, mert a kérést elutasítottuk.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-2" value="b"><span>401 csak akkor, ha a token hibás formátumú; ha csak lejárt, akkor 403.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-2" value="c"><span>419, a munkamenet-lejárati kód.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-2" value="d"><span>401, <code>WWW-Authenticate</code> fejléccel, mert az újrahitelesítés megoldja.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A 401 azt jelenti: „hitelesítsd magad és próbáld újra”; a 403 azt: „a hitelesítő adat rendben volt, a válasz mégis nem”.</b> A szokásos rákérdezés — érvényes token hiányzó scope-pal — 403, mert az újrahitelesítés nem segítene.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mikor adjon egy végpont <code>202 Accepted</code>-et?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-status-3" value="a"><span>Ha a kérés sorba került, nem fejeződött be — és a válasz megmutat egy állapot-erőforrást, amit a kliens lekérdezhet.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-3" value="b"><span>A <code>201</code> helyett, ha az erőforrás azonosítója még nem ismert.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-3" value="c"><span>Ha a kliensnek később újra kell próbálnia.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-3" value="d"><span>Valahányszor a munka egy másodpercnél tovább tart.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A 202 az őszinte válasz az aszinkron munkára</b>, és csak akkor őszinte, ha adsz a kliensnek helyet, ahova nézhet. Összevetésül: a <code>201</code> azt jelenti, az erőforrás már létezik, és <code>Location</code>-t hoz; a <code>204</code> sikert jelent szándékosan törzs nélkül.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="negotiation">
+          <h3>Tartalomegyeztetés</h3>
+          <p>A kliens az <code>Accept</code>, <code>Accept-Language</code> és <code>Accept-Encoding</code> fejlécekben jelzi a preferenciáit; a szerver választ egy reprezentációt, és a <code>Content-Type</code>, <code>Content-Language</code> fejlécben megmondja, melyiket. A minőségi értékek (q) rangsorolják a preferenciákat.</p>
+          <pre class="code"><code class="language-http">Accept: application/vnd.example.order+json;version=2, application/json;q=0.8, */*;q=0.1
+Accept-Language: hu-HU, hu;q=0.9, en;q=0.5
+Accept-Encoding: br, gzip</code></pre>
+          <p>Két szabály, ami átnézésen számít: <code>406</code>-ot csak akkor adj, ha tényleg egyetlen elfogadható típust sem tudsz kiszolgálni (a gyakorlatban a legtöbb API egyszerűen JSON-t ad), és <b>mindig küldj <code>Vary</code>-t</b>, felsorolva minden kérésfejlécet, amitől a reprezentáció függött — különben egy megosztott cache a magyar törzset szolgálja ki egy angol kliensnek.</p>
+          <pre class="code"><code class="language-http">Vary: Accept, Accept-Language, Authorization</code></pre>
+          <p class="asked"><b>Így kérdezik</b> — „Hogy jön ide a verziózás?” Egy egyedi médiatípus (<code>application/vnd.example.order+json;version=2</code>) magát a <em>reprezentációt</em> verziózza, nem az URI-teret. Ez a puristák válasza; a verziózás témánál látszik, miért kerül a <code>/v1</code> mégis a legtöbb csapatnál az útvonalba.</p>
+          <details class="quiz" id="quiz-negotiation"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Miért kell egy egyeztetett válasznak <code>Vary</code> fejlécet küldenie?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-1" value="a"><span>Hogy elmondja a kliensnek, milyen reprezentációk léteznek.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-1" value="b"><span>Mert különben a megosztott cache csak az URI-ra kulcsol, és a magyar törzset szolgálja ki egy angol kliensnek.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-1" value="c"><span>Mert a HTTP/2 megköveteli a fejléctömörítéshez.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-1" value="d"><span>Hogy lehetővé tegye a feltételes kéréseket.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A <code>Vary</code> megnevez minden kérésfejlécet, amitől a reprezentáció függött.</b> Ha kihagyod, a CDN vidáman újrahasznosítja az egyik kliens egyeztetett válaszát mindenkinek — ugyanaz a hibaosztály, mint egy hitelesített válasz publikus cache-elése.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mikor helyes a <code>406 Not Acceptable</code>?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-2" value="a"><span>Ha a kliens elhagyja az <code>Accept</code>-et.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-2" value="b"><span>Valahányszor az <code>Accept</code> fejléc nem egyezik pontosan a válasz típusával.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-2" value="c"><span>Csak akkor, ha tényleg egyik elfogadható típust sem tudod kiszolgálni — a gyakorlatban a legtöbb API mindenképp JSON-t ad.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-2" value="d"><span>Ha a kérés törzsének rossz a <code>Content-Type</code>-ja.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A 406 ritkább, mint hinnéd.</b> A rossz <em>kérés</em>-törzstípus a <code>415 Unsupported Media Type</code>, és ez az a kód, ami tényleg előjön. Az egyetlen formátumod kiszolgálása barátságosabb, mint az elutasítás.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Hogyan verziózik egy egyedi médiatípus?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-3" value="a"><span>Verziónként külön domaint igényel.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-3" value="b"><span>Csak XML-re működik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-3" value="c"><span>Az URI-teret verziózza, mint a <code>/v2/orders</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-3" value="d"><span>A reprezentációt verziózza: <code>application/vnd.example.order+json;version=2</code>, az <code>Accept</code>-en keresztül egyeztetve.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ez a puritán válasz</b>, és HTTP-szemantikailag helyes: az erőforrás megtartotta az azonosságát, csak a reprezentációja változott. A legtöbb csapat mégis <code>/v1</code>-et tesz az útvonalba, mert az greppelhető a naplóban és tesztelhető egy curl egysorossal.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="conditional">
+          <h3>Feltételes kérések: ETag és Last-Modified</h3>
+          <p>Egy validátorral a kliens megkérdezheti, hogy „változott-e ez?” anélkül, hogy a törzs átmenne a hálózaton, a szerver pedig megkérdezheti, hogy „még mindig a friss példány van nálad?”, mielőtt elfogad egy írást. Az <code>ETag</code> egy átlátszatlan verziójelölő; a <code>Last-Modified</code> felbontása egy másodperc, ezért az <code>ETag</code> a jobb választás.</p>
+          <pre class="code"><code class="language-http">GET /v1/orders/8127
+If-None-Match: "3f1c9a"
+
+HTTP/1.1 304 Not Modified
+ETag: "3f1c9a"</code></pre>
+          <pre class="code"><code class="language-php">// Erős ETag a sor verziójából; gyenge (W/"...") akkor, ha a törzs kozmetikailag változhat.
+$etag = '"' . $order->version . '-' . $order->updatedAt->format('U') . '"';
+
+$response = $response->withHeader('ETag', $etag);
+
+$ifNoneMatch = $request->getHeaderLine('If-None-Match');
+if ($ifNoneMatch !== '' &amp;&amp; in_array($etag, array_map('trim', explode(',', $ifNoneMatch)), true)) {
+    return $response->withStatus(304)->withBody($emptyStream);   // 304-nél nincs törzs
+}</code></pre>
+          <div class="note"><b>Erős és gyenge.</b> A <code>W/"abc"</code> azt jelenti: „szemantikailag egyenértékű”, és gyenge validátort nem szabad range-kérésnél vagy íráskor <code>If-Match</code>-ként használni. Ha az ETagod a szerializált törzs hash-e, akkor erős; ha figyelmen kívül hagyja a whitespace-t vagy a generált időbélyegeket, jelöld gyengének.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan kerülöd el ugyanannak a törzsnek az újraküldését?” <code>ETag</code> plusz <code>If-None-Match</code>: a <code>304</code> egy körbefordulásba kerül és törzs nélkül jön. Említsd meg, hogy ugyanaz a validátor íráskor optimista zárolásra is jó — ez az a mondat, ami senioros.</p>
+          <details class="quiz" id="quiz-conditional"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Miért jobb az <code>ETag</code> a <code>Last-Modified</code>-nál?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-1" value="a"><span>A <code>Last-Modified</code> felbontása egy másodperc, így az egy másodpercen belüli két változás megkülönböztethetetlen; az <code>ETag</code> átlátszatlan token, ami minden reprezentációváltozásnál változik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-1" value="b"><span>Az <code>ETag</code> kisebb a hálózaton.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-1" value="c"><span>Az <code>ETag</code> működik megosztott cache-sel, a <code>Last-Modified</code> nem.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-1" value="d"><span>A <code>Last-Modified</code> elavult.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A felbontás a gyakorlati ok.</b> Egy validátor, ami két verziót nem tud megkülönböztetni, írási útvonalon rosszabb a haszontalannál, mert átengedne egy elveszett módosítást.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mit jelent a <code>W/"abc"</code>, és hol nem használható?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-2" value="a"><span>Gyenge validátort, ami mindenhol használható, de a böngészők figyelmen kívül hagyják.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-2" value="b"><span>Gyenge validátort — szemantikailag egyenértékű, nem bájtra azonos —, és nem használható range kérésekhez, sem <code>If-Match</code>-hez íráskor.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-2" value="c"><span>Helyettesítő validátort, ami bármelyik verzióra illeszkedik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-2" value="d"><span>Az origin, nem egy proxy által generált validátort.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A gyenge azt jelenti: „elég közeli a törzs újrahasznosításához”, nem azt: „ugyanaz a verzió”.</b> A szerializált törzs hashe erős; az, ami figyelmen kívül hagyja a whitespace-t vagy egy generált időbélyeget, gyengének jelölendő — és így nem viheti az optimista zárolás szerepét.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi a legjobb válasz arra, hogy „hogyan kerülöd el ugyanannak a törzsnek az újraküldését”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-3" value="a"><span>Használj ritkított mezőkészletet, hogy kisebb legyen a törzs.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-3" value="b"><span>Tömörítsd <code>Content-Encoding: gzip</code>-pel.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-3" value="c"><span><code>ETag</code> plusz <code>If-None-Match</code>, így egy változatlan erőforrás egy körbefordulásba és egy törzs nélküli <code>304</code>-be kerül — és ugyanaz a validátor szolgál íráskor előfeltételként is.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-3" value="d"><span>Cache-eld hosszú <code>max-age</code>-dzsel, és soha ne validáld újra.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A kettős szerep az, ami seniornak hangzik.</b> Egyetlen token szolgálja az újravalidálást (<code>If-None-Match</code> → 304) és az optimista párhuzamosságot (<code>If-Match</code> → 412).</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="caching">
+          <h3>Cache-fejlécek, és hogy ki gyorsítótáraz</h3>
+          <p>Három szereplő: a böngésző (privát cache), egy megosztott cache (CDN, Varnish, reverse proxy) és az alkalmazás saját cache-e. A <code>Cache-Control</code> az utasításkészlet; ha egy hitelesített végponton elrontod, az egyik felhasználó adata a másikhoz kerül.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Direktíva</th><th>Hatás</th></tr></thead>
+              <tbody>
+                <tr><td><code>no-store</code></td><td>Sehol ne tárold. Ez a helyes fejléc tokenekre, fizetési törzsekre, bármi titkosra</td></tr>
+                <tr><td><code>no-cache</code></td><td>Tárolhatod, de minden újrafelhasználás előtt érvényesítsd újra. Nem ugyanaz, mint a <code>no-store</code></td></tr>
+                <tr><td><code>private</code> / <code>public</code></td><td>Csak böngésző / megosztott cache is tárolhatja</td></tr>
+                <tr><td><code>max-age=N</code></td><td>N másodpercig friss bármelyik cache-ben</td></tr>
+                <tr><td><code>s-maxage=N</code></td><td>Felülírja a <code>max-age</code>-et, de csak megosztott cache-eknél</td></tr>
+                <tr><td><code>must-revalidate</code></td><td>Ha egyszer elavult, ellenőrzés nélkül soha ne szolgáld ki — nincs „hibánál add az elavultat”</td></tr>
+                <tr><td><code>stale-while-revalidate=N</code></td><td>N másodpercig kiszolgálhatja az elavultat, míg a háttérben frissít</td></tr>
+                <tr><td><code>stale-if-error=N</code></td><td>N másodpercig kiszolgálhatja az elavultat, ha az origó hibázik</td></tr>
+                <tr><td><code>immutable</code></td><td>A frissességi idő alatt soha ne érvényesítsen újra — ujjlenyomatos asset-URL-ekhez</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <pre class="code"><code class="language-http">Cache-Control: public, max-age=60, s-maxage=600, stale-while-revalidate=30
+Vary: Accept, Accept-Encoding</code></pre>
+          <div class="note"><b>A szivárgás.</b> Hitelesített kérésre adott válasznak <code>private</code>-nak (vagy <code>no-store</code>-nak) kell lennie, és ha megosztott cache van előtte, <code>Vary: Authorization</code> kell — vagy még inkább jelöld egyáltalán nem cache-elhetőnek. A „raktunk elé egy CDN-t, és a felhasználók egymás dashboardját kezdték látni” valódi incidenstípus, és az interjúztatók ismerik.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Mi a különbség a <code>no-cache</code> és a <code>no-store</code> között?” A <code>no-cache</code> tárol, de mindig újraérvényesít; a <code>no-store</code> egyáltalán nem engedi lemezre vagy memóriába írni a választ. Az invalidálási stratégiák ezen túl: rövid TTL + ETag-alapú újraérvényesítés, vagy surrogate key / címke szerinti purge a CDN-en.</p>
+          <details class="quiz" id="quiz-caching"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Mi a különbség a <code>no-cache</code> és a <code>no-store</code> között?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-1" value="a"><span>A <code>no-cache</code> böngészőkre, a <code>no-store</code> CDN-ekre vonatkozik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-1" value="b"><span>A <code>no-store</code> engedi a tárolást, de tiltja a megosztást.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-1" value="c"><span>Szinonimák.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-1" value="d"><span>A <code>no-cache</code> engedi a tárolást, de minden újrafelhasználás előtt újravalidálást követel; a <code>no-store</code> egyáltalán megtiltja a válasz leírását.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A <code>no-store</code> a titkoké</b> — tokenek, fizetési törzsek. A <code>no-cache</code> frissességi utasítás, és tökéletesen megfér egy <code>ETag</code>-alapú újravalidálási stratégiával.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Egy CDN áll egy hitelesített végpont előtt. Minek kell igaznak lennie?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-2" value="a"><span>A válasznak <code>private</code>-nak vagy <code>no-store</code>-nak kell lennie, és ha egyáltalán cache-elhető, <code>Vary: Authorization</code> kell.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-2" value="b"><span>Elég az <code>s-maxage=0</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-2" value="c"><span>A végpontot másik hostnévről kell kiszolgálni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-2" value="d"><span>Semminek; a CDN-ek soha nem cache-elnek <code>Authorization</code> fejlécet hordozó választ.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A „raktunk elé CDN-t, és a felhasználók egymás dashboardját látták” valódi incidensosztály.</b> Jelöld a hitelesített válaszokat privátnak vagy egyáltalán nem cache-elhetőnek — ez a biztonságos alapértelmezés —, és tekintsd a <code>Vary: Authorization</code>-t minimumnak, ha szándékosan cache-eled őket.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mit ad a <code>stale-while-revalidate=60</code>?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-3" value="a"><span>60 másodperccel meghosszabbítja a frissességet.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-3" value="b"><span>Engedi, hogy a cache legfeljebb 60 másodpercig kiszolgálja az elavult példányt, miközben a háttérben frissít — így egyetlen kliens sem vár az originre.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-3" value="c"><span>60 másodpercenként kikényszeríti az újravalidálást.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-3" value="d"><span>60 másodpercig megtartja a bejegyzést a kiürítés után.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Késleltetés-elrejtés, nem frissesség.</b> A testvére, a <code>stale-if-error</code> akkor szolgál ki elavultat, ha az origin hibázik, a <code>must-revalidate</code> pedig az ellentétes utasítás: ha elavult, ellenőrzés nélkül soha ne szolgáld ki.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="design">
+        <header>
+          <h2>Erőforrás-tervezés</h2>
+          <span class="count">4 téma</span>
+        </header>
+        <p class="part-intro">A protokoll ad főneveket, igéket és státuszt. A tervezés az, hogy eldöntöd, mely főnevek léteznek, mekkorák, és hogyan sétál közöttük a kliens.</p>
+
+        <article class="topic" id="resources">
+          <h3>Erőforrás, nem RPC</h3>
+          <p>Az URI dolgokat nevez meg; a metódus mondja meg, mit csinálunk velük. Ha ige van az útvonalban (<code>/getUser?id=3</code>, <code>/createOrder</code>), akkor a metódus puszta dísz, és a lánc minden cache-e és proxyja elveszíti a képességét, hogy segítsen.</p>
+          <div class="versus">
+            <div>
+              <h4>RPC-alakú</h4>
+              <ul>
+                <li><code>POST /getOrder</code></li>
+                <li><code>POST /cancelOrder</code></li>
+                <li><code>POST /listOrdersForUser</code></li>
+                <li>Semmi nem cache-elhető, semmi nem ismételhető biztonságosan</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Erőforrás-alakú</h4>
+              <ul>
+                <li><code>GET /orders/8127</code></li>
+                <li><code>POST /orders/8127/cancellation</code></li>
+                <li><code>GET /users/42/orders</code></li>
+                <li>A <code>GET</code>-ek ingyen cache-elődnek és ismételhetők</li>
+              </ul>
+            </div>
+          </div>
+          <p>Konvenciók, amiket érdemes kimondani, mert az átnézők a következetességet keresik: többes számú gyűjtemény-főnevek (<code>/orders</code>), kisbetűs kebab-case a többszavas szegmenseknél (<code>/purchase-orders</code>), azonosítók az útvonalban, szűrők a query stringben, nincs záró perjel, nincs fájlkiterjesztés. Legfeljebb egy szintet ágyazz: a <code>/users/42/orders</code> rendben van, a <code>/users/42/orders/8127/lines/3/discounts</code> már karbantartási probléma — a mély erőforrást akaszd a saját gyökerére.</p>
+          <div class="note"><b>Ami nem CRUD.</b> A valódi doménekben van „lemondás”, „publikálás”, „visszatérítés”. Három őszinte lehetőség: modellezd a műveletet erőforrásként (<code>POST /orders/8127/cancellation</code>), modellezd állapotátmenetként (<code>PATCH /orders/8127</code>, <code>{"status":"cancelled"}</code>), vagy ismerd el, hogy ez RPC-stílusú parancs, és tartsd jól elkülönített sarokban. Általában az első a legjobb, mert így magának a műveletnek lesz azonosítója, időbélyege és nyoma az auditban.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan modelleznéd a ‘rendelés lemondása’ műveletet RESTben?” Előbb az erőforrás-mint-művelet változatot mondd, aztán az indoklást: kap egy azonosítót, amire újrapróbálkozhatsz, amire hivatkozhatsz support-ticketben és amit auditálhatsz — ezt egy státuszmező <code>PATCH</code>-e nem adja meg.</p>
+          <details class="quiz" id="quiz-resources"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mibe kerül valójában a <code>POST /getOrder</code>?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-1" value="a"><span>Megakadályozza a státuszkódok használatát.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-1" value="b"><span>Semmibe, amíg a dokumentáció egyértelmű.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-1" value="c"><span>A lánc minden cache-e és proxyja elveszti a segítőképességét: semmi nem cache-elhető és semmi nem próbálható újra biztonságosan, mert a metódus többé nem mondja meg, mit csinál a kérés.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-1" value="d"><span>Elrontja a CORS preflightot.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az URI dolgokat nevez meg; a metódus mondja meg, mit csinálunk velük.</b> Amint az ige az útvonalba költözik, a metódus dísz lesz, és a közted és a kliens közti általános infrastruktúrának nincs mivel dolgoznia.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Hogyan modelleznéd a „rendelés lemondását” REST-ben?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-2" value="a"><span><code>DELETE /orders/8127</code>, hiszen a rendelés már nem aktív.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-2" value="b"><span><code>PUT /orders/8127</code> a teljes rendeléssel és új státusszal.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-2" value="c"><span><code>POST /orders/8127/cancel</code>, hiszen a lemondás művelet.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-2" value="d"><span><code>POST /orders/8127/cancellation</code> — a lemondás erőforrás lesz saját azonosítóval, időbélyeggel és auditnyommal; ésszerű alternatíva egy állapotátmenetes <code>PATCH</code>.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Először modellezd erőforrásként, aztán mondd meg, miért.</b> Így a lemondás kap egy azonosítót, amire újrapróbálhatsz, amire hivatkozhatsz egy support ticketben, és amit auditálhatsz. A <code>DELETE</code> rossz — a rendelés attól még létezik.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Milyen mélyre menjen a beágyazás?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-3" value="a"><span>Legfeljebb egy szint — a <code>/users/42/orders</code> rendben van; ami mélyebb, az kapjon saját gyökeret.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-3" value="b"><span>Soha ne ágyazz; minden erőforrás lapos URI-t kapjon.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-3" value="c"><span>Két szintet, a harmadikat query paraméterként.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-3" value="d"><span>Olyan mélyre, amilyen a doménmodell, hogy az URI tükrözze az objektumgráfot.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A <code>/users/42/orders/8127/lines/3/discounts</code> karbantartási probléma</b>, nem tervezés. A többi házirend is számít, mert a review erre figyel: többes számú gyűjteménynevek, kisbetűs kebab-case, azonosítók az útvonalban, szűrők a query stringben, záró perjel nélkül.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="collections">
+          <h3>Gyűjtemények: szűrés, rendezés, lapozás</h3>
+          <p>Minden gyűjtemény-végpont találkozik előbb-utóbb egy klienssel, aki a 4000. oldalt kéri. Az offsetes lapozás egyszerű és rosszul skálázódik; a kurzoros (keyset) lapozás kicsit nehezebb, és konstans idejű marad.</p>
+          <div class="versus">
+            <div>
+              <h4>Offset / limit</h4>
+              <ul>
+                <li><code>?page=3&amp;per_page=25</code></li>
+                <li>Tetszőleges oldalra lehet ugrani; a teljes darabszám természetesen adódik</li>
+                <li>Az <code>OFFSET 100000</code> miatt az adatbázis megszámol és eldob sorokat</li>
+                <li><b>Csúszik:</b> lapozás közbeni beszúrás egy sort kétszer mutat vagy kihagy</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Kurzor / keyset</h4>
+              <ul>
+                <li><code>?limit=25&amp;after=eyJpZCI6ODEyN30</code></li>
+                <li>Indexes keresés — az 1. és a 4000. oldal ugyanannyiba kerül</li>
+                <li>Párhuzamos írások mellett is stabil</li>
+                <li>Nincs „ugrás a 12. oldalra”, és a teljes darabszám drágává válik</li>
+              </ul>
+            </div>
+          </div>
+          <pre class="code"><code class="language-php">// Keyset lapozás stabil, egyedi rendezési kulcs mentén.
+// Az id mint holtversenytörő teszi helyessé akkor, amikor a created_at ismétlődik.
+$sql = 'SELECT id, created_at, total
+        FROM orders
+        WHERE (created_at, id) &lt; (:cursorTime, :cursorId)
+        ORDER BY created_at DESC, id DESC
+        LIMIT :limit';
+
+$rows = $pdo-&gt;prepare($sql);
+// ... kötés, majd $limit + 1 sor lekérése; a plusz sorból tudod, van-e következő oldal.
+
+$next = count($rows) &gt; $limit
+    ? base64_encode(json_encode(['t' =&gt; $rows[$limit - 1]['created_at'], 'id' =&gt; $rows[$limit - 1]['id']]))
+    : null;</code></pre>
+          <p>A lapozási állapotot vagy a törzsben add vissza (<code>{"data": [...], "next_cursor": "..."}</code>), vagy <code>Link</code> fejlécekben (<code>rel="next"</code>, <code>rel="prev"</code>) — válassz egyet, és tartsd mindenhol. A szűrők a query stringbe valók, kiszámítható nevekkel (<code>?status=paid&amp;created_after=2026-01-01</code>), a rendezés egyetlen <code>?sort=-created_at,id</code> paraméterbe, ahol a <code>-</code> a csökkenőt jelenti. A <code>limit</code>-et mindig maximáld szerveroldalon; a korlátlan <code>per_page</code> egy szolgáltatásmegtagadási paraméter.</p>
+          <p class="asked"><b>Így kérdezik</b> — „A listázó végpont belassult az 500. oldalnál. Most mi van?” Keyset lapozás, a rendezési kulccsal pontosan egyező index, és a pontos darabszám elhagyása (becsüld meg, vagy adj vissza „van még” jelzést). A <code>(created_at, id)</code> holtversenytörő megnevezése különbözteti meg a bemagolt választ az élesben használttól.</p>
+          <details class="quiz" id="quiz-collections"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">A listázó végpontod az 500. oldalnál lelassult. Mi most a teendő?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-1" value="a"><span>Tegyél cache-t a gyűjtemény-végpont elé.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-1" value="b"><span>Válts keyset lapozásra, tegyél a rendezési kulcsnak pontosan megfelelő indexet, és hagyd el a pontos összesítést — becsüld meg, vagy adj vissza „van még” jelzést.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-1" value="c"><span>Növeld a <code>per_page</code>-et, hogy kevesebb oldal legyen.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-1" value="d"><span>Denormalizáld a táblát.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az <code>OFFSET 100000</code> arra kényszeríti az adatbázist, hogy 100 000 sort végigjárjon és eldobjon.</b> A <code>(created_at, id)</code> holtverseny-feloldó megnevezése különbözteti meg a bemagolt választ a valóban használttól — nélküle az azonos időbélyegű sorok oldalak között ugrálnak.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi romlik el az offsetes lapozásnál párhuzamos írások mellett?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-2" value="a"><span>Az adatbázis lezárja a táblát.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-2" value="b"><span>Semmi; az offset kérésenként újraszámolódik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-2" value="c"><span>Elcsúszás: egy beszúrás lapozás közben egy sort kétszer mutat, vagy egyet kihagy.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-2" value="d"><span>Az összesítés negatívvá válik.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az ablak elmozdul alattad.</b> A kurzoros lapozás azt kódolja, <em>hol ért véget az előző oldal</em>, nem azt, hány sort ugorjon át, így párhuzamos írások mellett stabil — cserébe elveszik az „ugrás a 12. oldalra” és az olcsó összesítés.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Miért kell a <code>limit</code>-et szerveroldalon maximálni?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-3" value="a"><span>Mert a kurzorkódolás fix méretű.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-3" value="b"><span>Mert a HTTP 2 KB-ra korlátozza a query stringet.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-3" value="c"><span>Mert a kliensekben nem lehet megbízni, hogy egészet küldenek.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-3" value="d"><span>Mert a korlátlan <code>per_page</code> egy szolgáltatásmegtagadási paraméter.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Egyetlen, egymillió sort kérő kérés is elég.</b> A gyűjtemény többi házirendje: kiszámítható nevű szűrők a query stringben, rendezés egyetlen <code>?sort=-created_at,id</code> paraméterben a <code>-</code> jellel a csökkenőre, és a lapozási állapot vagy a törzsben, vagy <code>Link</code> fejlécekben — válassz egyet, és alkalmazd mindenhol.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="relations">
+          <h3>Kapcsolatok és a törzs alakja</h3>
+          <p>A két hibamód a fecsegő API (száz kérés egyetlen képernyő megrajzolásához) és a túltáplált API (egy végpont, ami mindent visszaad, amit valaha bárki kért). A kettő között ezek az eszközök vannak: alerőforrások, kibontás és ritka mezőhalmazok.</p>
+          <pre class="code"><code class="language-http">GET /v1/orders/8127                      → a rendelés, a vevő hivatkozásként
+GET /v1/orders/8127?expand=customer,lines → beágyazott reprezentációk
+GET /v1/orders?fields=id,total,status     → ritka mezőhalmaz, kisebb törzs
+GET /v1/orders/8127/lines                 → a gyűjtemény saját URI-n</code></pre>
+          <pre class="code"><code class="language-json">{
+  "id": "ord_8127",
+  "status": "paid",
+  "total": {"amount": 1500, "currency": "HUF"},
+  "customer": {"id": "cus_42", "href": "/v1/customers/42"},
+  "created_at": "2026-09-10T08:14:22Z"
+}</code></pre>
+          <p>Konvenciók, amik későbbi vitákat spórolnak meg: egyetlen kulcsírásmód mindenhol (a <code>snake_case</code> a szokásos REST-választás, <code>camelCase</code>, ha minden fogyasztód JS), RFC 3339 UTC időbélyegek <code>Z</code>-vel, pénz egész értékben, minor egységben, valutakóddal (soha nem lebegőpontosan), enumok kisbetűs stringként és nem egészként, a <code>null</code> pedig a „tudottan hiányzik” jelentésre van fenntartva, nem a „nincs betöltve”-re. Egyetlen erőforrást ne csomagolj fölösleges borítékba; gyűjteményt viszont igen, mert a lapozási metaadatnak ott kell laknia.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mikor nyúlnál inkább GraphQL-hez?” Amikor a kliensnek tényleg tetszőleges alakokra van szüksége, és megfizeted az árát: lekérdezés-komplexitási korlátok, N+1 batchelés, mezőnkénti jogosultságkezelés és jóval gyengébb HTTP-cache. Néhány ismert fogyasztónál ugyanezt megoldja a kibontás és a ritka mezőhalmaz, mindezek nélkül.</p>
+          <details class="quiz" id="quiz-relations"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi az a két hibamód, ami közé a törzs tervezésének be kell illeszkednie?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-1" value="a"><span>A fecsegő API — száz kérés egyetlen képernyő megrajzolásához — és a túltáplált API, egy végpont, ami mindent visszaad, amit valaha bárki kért.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-1" value="b"><span>Túl sok és túl kevés végpont.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-1" value="c"><span>Mély és lapos beágyazás.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-1" value="d"><span>Adatbázissorok túl- és alulkérése.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az alerőforrások, az expanzió és a ritkított mezőkészlet az eszközök a kettő között.</b> Ezekkel egy végpont kiszolgálhat lista- és részletnézetet is anélkül, hogy megabájtokat küldene vagy tíz további hívást kényszerítene ki.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Hogyan érdemes pénzt reprezentálni egy JSON-törzsben?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-2" value="a"><span>Lebegőpontos számként, a számolás kedvéért.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-2" value="b"><span>Egész számú minor egységként, plusz egy pénznemkóddal.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-2" value="c"><span>Formázott sztringként, pénznem-szimbólummal.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-2" value="d"><span>Decimális sztringként, amit a kliens elemez.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Lebegőpontos szám soha.</b> A szomszédos konvenciók, amik későbbi vitákat spórolnak: egységes betűzési stílus mindenhol, RFC 3339 UTC időbélyegek <code>Z</code>-vel, enumok kisbetűs sztringként, nem egészként, és a <code>null</code> a „tudottan hiányzik”-ra fenntartva, nem a „nincs betöltve”-re.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mikor helyes válasz a GraphQL az expanzió és a ritkított mezőkészlet helyett?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-3" value="a"><span>Ha a séma gyakran változik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-3" value="b"><span>Valahányszor a kliensek a törzs méretére panaszkodnak.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-3" value="c"><span>Ha a klienseknek valóban tetszőleges alakokra van szükségük, és megengedheted magadnak a lekérdezés-komplexitás korlátozását, az N+1 kötegelését, a mezőnkénti jogosultságot és a sokkal gyengébb HTTP-cache-elést.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-3" value="d"><span>Valahányszor egynél több kliens van.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A költségek maguk a válasz.</b> Néhány ismert fogyasztónál az expanzió és a ritkított mezőkészlet ugyanazt oldja meg, és a lánc minden HTTP-cache-e működőképes marad.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="maturity">
+          <h3>A Richardson-érettségi modell, és a HATEOAS őszintén</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Szint</th><th>Mit jelent</th><th>A gyakorlatban</th></tr></thead>
+              <tbody>
+                <tr><td class="num">0</td><td>Egy URI, egy ige — a HTTP mint alagút</td><td>SOAP-stílusú <code>POST /api</code></td></tr>
+                <tr><td class="num">1</td><td>Az erőforrások saját URI-t kapnak</td><td>Még mindig mindenre <code>POST</code></td></tr>
+                <tr><td class="num">2</td><td>Metódusok és státuszkódok helyes használata</td><td><b>Itt él gyakorlatilag minden valódi API</b></td></tr>
+                <tr><td class="num">3</td><td>Hipermédia-vezérlők a reprezentációban</td><td>HAL, JSON:API linkek, <code>Link</code> fejlécek</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>A 3. szint azt jelenti, hogy a kliens a válaszban lévő linkekből tudja meg, mit tehet legközelebb, nem beégetett URI-sablonokból. Ez Fielding tényleges REST-definíciója — egy hipermédia nélküli API szigorúan véve nem REST. Ugyanakkor egy backend és a saját SPA-ja között ritkán térül meg, hiszen a kliens amúgy is az API ismeretével együtt kerül ki. Ahol viszont megtérül: hosszú életű publikus API-k, állapotgépek (most éppen mely átmenetek szabályosak), és a lapozás.</p>
+          <pre class="code"><code class="language-json">{
+  "id": "ord_8127",
+  "status": "paid",
+  "_links": {
+    "self":     {"href": "/v1/orders/8127"},
+    "refund":   {"href": "/v1/orders/8127/refunds", "method": "POST"},
+    "invoice":  {"href": "/v1/orders/8127/invoice"}
+  }
+}</code></pre>
+          <p class="asked"><b>Így kérdezik</b> — „RESTful az API-tok?” Az erős válasz megnevezi a szintet, aztán a kompromisszumot: „2. szint, szándékosan — a lapozásnál és az állapotátmeneteknél küldünk linkeket, ahol megéri, de a teljes hipermédia olyan költség lenne, amit a két ismert kliensünk nem használna ki.” A csapda az, ha 3. szintet állítasz, aztán nem tudsz leírni egy hipermédia-vezérlőt.</p>
+          <details class="quiz" id="quiz-maturity"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Mit követel a Richardson 3. szintje, amit a 2. nem?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-1" value="a"><span>Erőforrásonként egy URI-t.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-1" value="b"><span>Médiatípus szerinti verziózást.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-1" value="c"><span>A metódusok és státuszkódok helyes használatát.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-1" value="d"><span>Hipermédia-vezérlőket a reprezentációban, hogy a kliens a linkekből tudja meg, mit tehet legközelebb, ne beégetett URI-sablonokból.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A 3. szint Fielding tényleges REST-definíciója</b> — szigorúan véve egy hipermédia nélküli API nem REST. A 2. szint, ahol szinte minden valódi API él, erőforrásokat plusz helyes metódus- és státuszkódhasználatot jelent.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Hol térül meg valóban a hipermédia?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-2" value="a"><span>Hosszú életű publikus API-kon, állapotgépeken, ahol a szabályos átmenetek változnak, és lapozásnál.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-2" value="b"><span>Bármely API-n, aminek tíznél több végpontja van.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-2" value="c"><span>Szolgáltatások közti belső hívásoknál.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-2" value="d"><span>Egy backend és a saját SPA-ja között, amit vele együtt deployolnak.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ott éri meg, ahol a kliens nem deployolható újra friss tudással.</b> A saját SPA-d már ismeri az URI-sablonokat, így a linkek ceremóniát adnak hozzá anélkül, hogy csatolást vennének el.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mi az erős válasz arra, hogy „RESTful az API-tok?”</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-3" value="a"><span>„Igen, követi a REST elveit.”</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-3" value="b"><span>Nevezd meg a szintet és a kompromisszumot: „2. szint, szándékosan — linkeket a lapozáshoz és az állapotátmenetekhez adunk, ahol megéri, de a teljes hipermédia többe kerülne, mint amennyit a két ismert kliensünk használna.”</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-3" value="c"><span>„3. szint, JSON:API-t adunk vissza.”</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-3" value="d"><span>„A REST egy skála, így a kérdés értelmetlen.”</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A csapda az, ha 3. szintet állítasz, majd nem tudsz leírni egy hipermédia-vezérlőt.</b> A szint megnevezése és megvédése sokkal jobban hangzik, mint egy minősítetlen igen.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="reliability">
+        <header>
+          <h2>Megbízhatóság</h2>
+          <span class="count">4 téma</span>
+        </header>
+        <p class="part-intro">A hálózat újrapróbálkozik, a felhasználó duplán kattint, és két ember ugyanazt a sort szerkeszti. A senior interjúk legtöbb ideje ezen a négy témán megy el, mert itt terhelnek le kétszer valakit.</p>
+
+        <article class="topic" id="idempotency">
+          <h3>Idempotencia-kulcsok</h3>
+          <p>A kliens elküld egy <code>POST /payments</code>-et, a kapcsolat a terhelés után, de a válasz előtt szakad meg. A kliens nem tudhatja, megtörtént-e. A megoldás egy kliens által generált kulcs, amit a szerver megjegyez.</p>
+          <pre class="code"><code class="language-php">final class IdempotentPayments
+{
+    public function __construct(private PDO $db, private Payments $payments) {}
+
+    public function handle(string $key, array $payload): array
+    {
+        $fingerprint = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
+
+        // Előbb foglaljuk le a kulcsot. Az egyedi index a párhuzamosságkezelés:
+        // két egyidejű újrapróbálkozás itt versenyez, és pontosan egy nyer.
+        try {
+            $stmt = $this-&gt;db-&gt;prepare(
+                'INSERT INTO idempotency_keys (key_id, fingerprint, state, created_at)
+                 VALUES (:k, :f, \'in_progress\', NOW())'
+            );
+            $stmt-&gt;execute(['k' =&gt; $key, 'f' =&gt; $fingerprint]);
+        } catch (PDOException $e) {
+            if (!$this-&gt;isUniqueViolation($e)) {
+                throw $e;
+            }
+            $row = $this-&gt;load($key);
+
+            // Ugyanaz a kulcs, másik törzs: a kliens hibás. Ne játszd vissza csendben.
+            if (!hash_equals($row['fingerprint'], $fingerprint)) {
+                throw new IdempotencyConflict();       // → 422, vagy 409
+            }
+            if ($row['state'] === 'in_progress') {
+                throw new RequestInFlight();           // → 409 + Retry-After
+            }
+            return json_decode($row['response'], true); // → az eltárolt 201 visszajátszása
+        }
+
+        $result = $this-&gt;payments-&gt;charge($payload);
+        $this-&gt;store($key, $result);
+        return $result;
+    }
+}</code></pre>
+          <p>Tervezési részletek, amikre az interjúztató rákérdez: a kulcsot a <b>kliens generálja</b> (egy UUID logikai műveletenként, nem újrapróbálkozásonként), API-kulcsonként vagy felhasználónként scope-olva, hogy bérlők között ne ütközhessen, a <b>válasszal együtt</b> tárolva, hogy a visszajátszás az eredeti <code>201</code>-et adja vissza és ne hajtsa végre újra a műveletet, körülbelül 24 óra után lejáratva, és kizárólag nem biztonságos, nem idempotens metódusokra alkalmazva. A Stripe implementációja a referencia, amit mindenki kölcsönvesz.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan teszel egy fizetési végpontot biztonságosan újrapróbálhatóvá?” Idempotencia-kulcs, egyedi index, eltárolt válasz, ujjlenyomat-ellenőrzés eltérés esetén. Ha csak annyit mondasz, hogy „megnézem, van-e azonos összegű fizetés az elmúlt percben”, számíts a két jogos, azonos terhelésről szóló visszakérdezésre.</p>
+          <details class="quiz" id="quiz-idempotency"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Milyen problémát old meg az idempotencia-kulcs?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-1" value="a"><span>A hiányzó egyedi index okozta duplikált rekordokat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-1" value="b"><span>Két kliens egyidejű űrlapbeküldését.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-1" value="c"><span>Azt a klienst, ami nem tudja eldönteni, sikerült-e a kérése — a kapcsolat a terhelés után, de a válasz előtt szakadt meg —, és biztonságosan újra kell próbálnia.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-1" value="d"><span>A felhasználónkénti rate limitinget.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A kétértelmű hibáról szól, nem a párhuzamosságról.</b> A szerver a kulcs mellé elmenti az eredeti választ, így az újraküldés ugyanazt a <code>201</code>-et kapja, nem terhel újra.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Hogyan generálódik és hogyan van hatókörözve a kulcs?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-2" value="a"><span>A kérés törzsének hashéből származik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-2" value="b"><span>A munkamenet azonosítója.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-2" value="c"><span>A szerver generálja, és visszaadja, hogy a kliens újrahasználhassa.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-2" value="d"><span>A kliens generálja — logikai műveletenként egy UUID-t, nem újrapróbálkozásonként —, és API-kulcsonként vagy bérlőnként van hatókörözve, hogy a kulcsok ne ütközhessenek.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A „logikai műveletenként” a finomabbik fele.</b> Minden újrapróbálkozásnál új kulcs teljesen kiüti a mechanizmust. A hatókörözés megakadályozza, hogy az egyik bérlő kulcsa ütközzön a másikéval, a tárolt bejegyzés pedig jellemzően 24 óra után jár le.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">„Hogyan teszed egy fizetési végpontot biztonságosan újrapróbálhatóvá?” Mi a teljes válasz?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-3" value="a"><span>Idempotencia-kulcs, rá egyedi index, a tárolt válasz visszajátszása ismétlésnél, és egy ujjlenyomat-ellenőrzés, ami elutasítja az eltérő törzzsel újrahasznált kulcsot.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-3" value="b"><span>Adatbázis-tranzakcióba csomagolod a terhelést.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-3" value="c"><span><code>PUT</code>-ot használsz <code>POST</code> helyett.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-3" value="d"><span>Megnézed, van-e azonos összegű fizetés az utolsó percben.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az összeg-és-idő heurisztika kihívja a kézenfekvő rákérdezést:</b> két jogos, azonos terhelés. Az ujjlenyomat-ellenőrzés is számít — egy kulcsot eltérő tartalommal újrahasználó kliens hibás, és <code>422</code>-t érdemel, nem a régi választ.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="concurrency">
+          <h3>Optimista párhuzamosság: az elveszett módosítás</h3>
+          <p>Két kliens lekéri ugyanazt a rendelést, mindkettő szerkeszti, mindkettő <code>PUT</code>-ol. Előfeltétel nélkül a második csendben felülírja az elsőt — ez a klasszikus lost update. A HTTP-nek van rá beépített válasza.</p>
+          <pre class="code"><code class="language-http">PUT /v1/orders/8127
+If-Match: "3f1c9a"
+
+→ 200 OK          a verzió egyezett, az írás megtörtént, jön az új ETag
+→ 412             valaki más módosította azóta, hogy beolvastad
+→ 428             nem küldtél If-Match-et, és ez a végpont megköveteli</code></pre>
+          <pre class="code"><code class="language-php">// Ugyanez adatbázisoldalon: verzióoszlop és feltételes UPDATE.
+$stmt = $pdo-&gt;prepare(
+    'UPDATE orders SET total = :total, version = version + 1
+     WHERE id = :id AND version = :expected'
+);
+$stmt-&gt;execute(['total' =&gt; $total, 'id' =&gt; $id, 'expected' =&gt; $expectedVersion]);
+
+if ($stmt-&gt;rowCount() === 0) {
+    throw new PreconditionFailed();   // → 412: olvassa újra a kliens, majd próbálja újra
+}</code></pre>
+          <div class="note"><b>Optimista vagy pesszimista.</b> Az optimista (verzióellenőrzés, olvasás és írás között nincs tartott zár) illik a HTTP-hez, mert a kliens akár sosem jön vissza. A pesszimista (<code>SELECT ... FOR UPDATE</code>) adatbázis-zárat tart, és csak egyetlen rövid tranzakción belül működik — a felhasználó gondolkodási ideje alatt nem tarthatod, hacsak nem építesz saját zárlejárati gépezetet.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Két felhasználó szerkeszti ugyanazt a rekordot. Mi történik?” Nevezd meg az elveszett módosítást, aztán add meg mindkét réteget: <code>If-Match</code>/<code>412</code> az API határán, és verzióoszlop feltételes <code>UPDATE</code>-tel alatta, hogy a fejlécet megkerülő kliens se tudja felülcsapni a sort.</p>
+          <details class="quiz" id="quiz-concurrency"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Két kliens lekéri ugyanazt a rendelést, mindkettő szerkeszti, mindkettő PUT-ol. Hogy hívják a hibát, és mi akadályozza meg?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-1" value="a"><span>Versenyhelyzet; adatbázis-tranzakció akadályozza meg.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-1" value="b"><span>Az elveszett módosítás (lost update); előfeltétel akadályozza meg — <code>If-Match</code> az aktuális <code>ETag</code>-gel, amire <code>412 Precondition Failed</code> a válasz, ha már nem egyezik.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-1" value="c"><span>Holtpont; egységes zárolási sorrend akadályozza meg.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-1" value="d"><span>Piszkos olvasás; magasabb izolációs szint akadályozza meg.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Előfeltétel nélkül a második írás csendben felülírja az elsőt.</b> A HTTP-ben benne van a megoldás, és ugyanazt a validátort használja, ami a feltételes <code>GET</code>-ből már megvan.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Miért illik a HTTP-hez az optimista párhuzamosság a pesszimista zárolás helyett?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-2" value="a"><span>Mert a <code>SELECT … FOR UPDATE</code> nem működik PDO-val.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-2" value="b"><span>Mert az optimista ellenőrzés gyorsabb.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-2" value="c"><span>Mert a kliens lehet, hogy soha nem jön vissza — nem tarthatsz adatbázis-zárat egy felhasználó gondolkodási ideje alatt anélkül, hogy saját zárlejárati gépezetet építenél.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-2" value="d"><span>Mert a HTTP tiltja a hosszú tranzakciókat.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Megint az állapotmentesség.</b> A pesszimista zárolás egyetlen rövid tranzakción belül működik; két kérés között nincs munkamenet, amire zárat akaszthatnál, és egy félbehagyott szerkesztés végtelenségig blokkolná a sort.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Mi a teljes, kétrétegű válasz arra, hogy „két felhasználó szerkeszti ugyanazt a rekordot”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-3" value="a"><span>Serializable izoláció minden tranzakcióra.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-3" value="b"><span><code>If-Match</code> és <code>412</code> az API határán.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-3" value="c"><span>Egy verzióoszlop és feltételes <code>UPDATE … WHERE version = ?</code> az adatbázisban.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-3" value="d"><span>Mindkettő: a fejléc a határon, és a verzióoszlop alatta, hogy a fejlécet megkerülő kliens se tudja letarolni a sort.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A határon lévő ellenőrzés udvariasság; az adatbázisbeli a garancia.</b> Mindkettő megnevezése — és az, hogy miért van az alsó réteg — az, amit a kérdés keres.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="ratelimit">
+          <h3>Rate limiting</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Algoritmus</th><th>Viselkedés</th><th>Költség</th></tr></thead>
+              <tbody>
+                <tr><td>Fix ablak</td><td>Percenkénti számláló. Egyszerű; az ablakhatáron 2× löketet enged át</td><td>Egy számláló</td></tr>
+                <tr><td>Csúszó ablak, naplóval</td><td>Minden kérés időbélyege. Pontos</td><td>A memória a forgalommal nő</td></tr>
+                <tr><td>Csúszó ablak, számlálóval</td><td>Az aktuális és az előző ablak súlyozott keveréke. Jó közelítés</td><td>Két számláló</td></tr>
+                <tr><td>Token bucket</td><td>A tokenek egyenletesen töltődnek, a vödörnek van kapacitása. <b>Kontrollált löketet enged</b></td><td>Két mező: tokenek, utolsó töltés</td></tr>
+                <tr><td>Leaky bucket</td><td>A sor fix ütemben ürül. Teljesen kisimítja a kimenetet</td><td>Egy sor</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <pre class="code"><code class="language-php">// Token bucket Redisben. A Lua szkript teszi atomivá az olvasás-módosítás-írást —
+// ezt három PHP körbefordulásban megcsinálni pont az a hiba, amit keresnek.
+const SCRIPT = &lt;&lt;&lt;'LUA'
+local tokens_key = KEYS[1]
+local rate, capacity, now, cost = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4])
+local data = redis.call('HMGET', tokens_key, 'tokens', 'ts')
+local tokens = tonumber(data[1]) or capacity
+local ts = tonumber(data[2]) or now
+tokens = math.min(capacity, tokens + (now - ts) * rate)
+local allowed = tokens &gt;= cost
+if allowed then tokens = tokens - cost end
+redis.call('HSET', tokens_key, 'tokens', tokens, 'ts', now)
+redis.call('EXPIRE', tokens_key, math.ceil(capacity / rate) * 2)
+return { allowed and 1 or 0, tokens }
+LUA;
+
+[$allowed, $remaining] = $redis-&gt;eval(SCRIPT, ["rl:{$apiKey}"], [10, 100, microtime(true), 1]);</code></pre>
+          <pre class="code"><code class="language-http">HTTP/1.1 429 Too Many Requests
+Retry-After: 12
+RateLimit: limit=100, remaining=0, reset=12
+RateLimit-Policy: 100;w=60</code></pre>
+          <p>Ahol lehet, hitelesítő adat szerint korlátozz (API-kulcs, felhasználó, bérlő), ne IP szerint — a NAT mögött egy egész iroda egyetlen címen van. Mindig mondd meg a kliensnek, mi történt: legalább <code>Retry-After</code>, és a <code>RateLimit</code> fejléccsalád, ha jól viselkedő klienseket szeretnél. És számíts a kliensoldali folytatásra: exponenciális visszalépés <em>jitterrel</em>, mert a szinkronban újrapróbálkozó kliensektől lesz egy korlátozott API-ból leállt API.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan korlátoznál egy API-t?” Token bucket Redisben, Luával atomivá téve, API-kulcsonként, <code>429</code> és <code>Retry-After</code>. Említsd a fix ablak határon átcsúszó löketét — az igazi jelzés az, hogy tudod, miért rossz a naiv számláló.</p>
+          <details class="quiz" id="quiz-ratelimit"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Miért rossz alapértelmezés a fix ablakos számláló?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-1" value="a"><span>Megenged egy 2× méretű löketet az ablakhatáron — egy teljes ablaknyi kérést a perc végén, és még egyet a következő elején.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-1" value="b"><span>Redisben nem tehető atomivá.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-1" value="c"><span>Nem tud <code>Retry-After</code>-t adni.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-1" value="d"><span>Túl sok memóriát igényel.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az igazi jelzés az, hogy tudod, <em>miért</em> rossz a naiv számláló.</b> A szokásos éles válasz: token bucket Redisben, Lua-szkripttel atomivá téve, API-kulcsra kulcsolva, <code>429</code>-cel és <code>Retry-After</code>-rel.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Miért érdemes hitelesítő adat szerint korlátozni IP helyett, ahol lehet?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-2" value="a"><span>Az IP-keresés lassú.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-2" value="b"><span>A NAT mögött egy egész iroda ül egyetlen címen, így az IP-korlát egymással nem is rokon felhasználókat büntet együtt.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-2" value="c"><span>Az IPv6-címek túl sokan vannak ahhoz, hogy kulcsolni lehessen rájuk.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-2" value="d"><span>A per-IP korlátok nem nullázhatók.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A hitelesítő adat a szereplő; az IP a hálózat véletlene.</b> A per-IP korlátnak megvan a helye durva külső rétegként a hitelesítetlen forgalomra, de a valódi korlát az API-kulcson, a felhasználón vagy a bérlőn van.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mit kell a kliensoldalnak tennie, hogy a rate limiting működjön?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-3" value="a"><span>Cache-elni a <code>429</code>-es választ.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-3" value="b"><span>Azonnal újrapróbálni, amíg sikerül.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-3" value="c"><span>Exponenciális backoff jitterrel — a szinkronizált újrapróbálkozásoktól lesz egy korlátozott API-ból halott API.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-3" value="d"><span>Több kapcsolatot nyitni, hogy eloszoljon a terhelés.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A jitter az a szó, amit hallani akarnak.</b> Nélküle minden elutasított kliens ugyanabban a pillanatban próbálkozik újra, és a csorda reprodukálja azt a túlterhelést, amit a korlát megelőzni hivatott. Mondd meg a kliensnek, mi történt: legalább <code>Retry-After</code>, jólnevelt klienseknek a <code>RateLimit</code> fejléccsalád.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="errors">
+          <h3>Egyetlen hibaformátum: RFC 9457 problem details</h3>
+          <p>Minden API kitalálja a saját hibaborítékát. Van rá szabvány — <code>application/problem+json</code>, RFC 9457 (ez váltotta le az RFC 7807-et) —, és semmibe nem kerül használni.</p>
+          <pre class="code"><code class="language-http">HTTP/1.1 422 Unprocessable Content
+Content-Type: application/problem+json</code></pre>
+          <pre class="code"><code class="language-json">{
+  "type": "https://api.example.com/problems/validation-error",
+  "title": "A kérés paraméterei nem érvényesek.",
+  "status": 422,
+  "detail": "A rendelésnek legalább egy tételt tartalmaznia kell.",
+  "instance": "/v1/orders",
+  "trace_id": "01JB8Z4K3Q7X",
+  "errors": [
+    {"pointer": "/lines", "code": "min_items", "message": "Legalább egy tétel kötelező."},
+    {"pointer": "/currency", "code": "unsupported", "message": "Az XPT valuta nem támogatott."}
+  ]
+}</code></pre>
+          <p>A <code>type</code> egy stabil URI, ami a probléma <em>osztályát</em> azonosítja — a kliensnek ezen kell elágaznia, soha nem az ember számára írt <code>title</code>-ön. A kiterjesztő mezők (<code>errors</code>, <code>trace_id</code>) kifejezetten megengedettek. Tegyél bele korrelációs azonosítót, hogy egy support-ticket egy naplósorra képezhető legyen; stack trace-t, SQL-t és belső hosztneveket viszont soha — beleértve azt a stagingot is, amit valaki előbb-utóbb éles adatokra fog irányítani.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan adod vissza a validációs hibákat?” <code>422</code>, problem+json, gépi feldolgozásra alkalmas mezőnkénti hibakódok JSON Pointerrel, egy stabil <code>type</code> URI és egy trace id. A senior kiegészítés: a hibakódok a nyilvános szerződésed részei, és ugyanazok a kompatibilitási szabályok vonatkoznak rájuk, mint a mezőkre.</p>
+          <details class="quiz" id="quiz-errors"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Mi az <code>application/problem+json</code>?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-1" value="a"><span>Médiatípus kizárólag validációs hibákhoz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-1" value="b"><span>JSON Schema HTTP-hibákhoz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-1" value="c"><span>Egy Symfony-konvenció hibaválaszokhoz.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-1" value="d"><span>Az RFC 9457 szabványos hibaformátum — ami leváltotta az RFC 7807-et — a <code>type</code>, <code>title</code>, <code>status</code>, <code>detail</code> és <code>instance</code> mezőkkel.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Minden API kitalálja a saját hibaborítékát; van rá szabvány, és semmibe nem kerül használni.</b> A kiterjesztő tagok — például <code>errors</code> vagy <code>trace_id</code> — kifejezetten megengedettek.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Melyik mezőre ágazzon el a kliens?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-2" value="a"><span>A <code>type</code>-ra — egy stabil URI, ami a probléma osztályát azonosítja.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-2" value="b"><span>A <code>status</code>-ra, mert az géppel olvasható.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-2" value="c"><span>A <code>detail</code>-re, ami a részleteket hordozza.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-2" value="d"><span>A <code>title</code>-re, mert az írja le a problémát.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A <code>title</code> embernek szól, és bármikor átfogalmazható vagy lefordítható.</b> A <code>type</code> URI a szerződés — ezért vonatkoznak a hibakódokra ugyanazok a kompatibilitási szabályok, mint a mezőkre.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mi nem szerepelhet soha egy hibaválaszban?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-3" value="a"><span>Korrelációs azonosító.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-3" value="b"><span>Stack trace, SQL és belső hostnevek — mindig, beleértve azt a staging környezetet is, amit valaki előbb-utóbb éles adatra irányít.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-3" value="c"><span>Mezőnkénti validációs kódok.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-3" value="d"><span>Az <code>instance</code> URI.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A korrelációs azonosító legyen benne, hogy a support ticket egy naplósorra képződjön; minden, ami a belsőidet írja le, maradjon ki.</b> Kifejezetten a validációra: <code>422</code>, problem+json, géppel olvasható mezőnkénti kódok JSON Pointerrel, egy stabil <code>type</code> URI és egy trace id.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="evolution">
+        <header>
+          <h2>Fejlődés</h2>
+          <span class="count">3 téma</span>
+        </header>
+
+        <article class="topic" id="versioning">
+          <h3>Verziózás és kivezetés</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Stratégia</th><th>Így néz ki</th><th>Kompromisszum</th></tr></thead>
+              <tbody>
+                <tr><td>URI-útvonal</td><td><code>/v1/orders</code></td><td>Nyilvánvaló, cache-elhető, naplóban kereshető. A puristák szerint az erőforrás identitása nem változott</td></tr>
+                <tr><td>Médiatípus</td><td><code>Accept: application/vnd.ex+json;version=2</code></td><td>HTTP-szemantikailag korrekt; böngészőből vagy egy curl-sorból nehezebb tesztelni</td></tr>
+                <tr><td>Egyedi fejléc</td><td><code>X-API-Version: 2026-09-10</code></td><td>Tiszta URI-k; a naplókban és a cache-ekben láthatatlan, hacsak nem <code>Vary</code>-zol</td></tr>
+                <tr><td>Query paraméter</td><td><code>?version=2</code></td><td>Ezzel a legkönnyebb visszaélni, és a legkönnyebb véletlenül lehagyni</td></tr>
+                <tr><td>Dátumalapú</td><td><code>Stripe-Version: 2026-09-10</code></td><td>Kliensenként rögzítve, tudatosan emelve; kérés/válasz transzformációs réteget igényel</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Bármelyiket választod, a fontosabbik fele a kivezetési folyamat: jelentsd be, állítsd be a <code>Deprecation</code> és <code>Sunset</code> fejléceket, mérd, ki hívja még, majd adj <code>410 Gone</code>-t egy problem-dokumentummal, ami a migrációs útmutatóra mutat.</p>
+          <pre class="code"><code class="language-http">Deprecation: @1789004400
+Sunset: Wed, 31 Mar 2027 23:59:59 GMT
+Link: &lt;https://api.example.com/docs/v2-migration&gt;; rel="deprecation"; type="text/html"</code></pre>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan verziózol egy API-t?” Nevezd meg az alapértelmezésedet (<code>/v1</code> az útvonalban, mert az üzemeltetés és a hibakeresés így egyszerűbb), aztán mutasd meg, hogy tudod, ez kompromisszum, végül fordulj rá az igazi válaszra: verziózz olyan ritkán, amennyire csak lehet, additív változtatásokkal, és a v2-t olyan költségként kezeld, amit csak egy törő újratervezésért fizetsz ki.</p>
+          <details class="quiz" id="quiz-versioning"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Mi a fő kifogás a <code>/v1/orders</code> ellen, és a legtöbb csapat miért használja mégis?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-1" value="a"><span>Nem lehet kivezetni; azért használják, mert a kliensek ezt várják.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-1" value="b"><span>Nem cache-elhető; azért használják, mert egyszerű.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-1" value="c"><span>A puristák szerint az erőforrás azonossága nem változott, de nyilvánvaló, cache-elhető és greppelhető a naplóban — amitől az üzemeltetés és a hibakeresés könnyebb.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-1" value="d"><span>Elrontja a CORS-t; azért használják, mert a böngészők megkövetelik.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Nevezd meg az alapértelmezésedet, aztán mutasd meg, hogy tudod: kompromisszum.</b> A médiatípusos verziózás HTTP-szemantikailag helyes; az egyedi fejléc tisztán hagyja az URI-kat, de láthatatlan a naplókban és a cache-ekben, hacsak nem <code>Vary</code>-zol.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Melyik fejlécek jelentik be a kivezetést?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-2" value="a"><span>A <code>Warning</code> és a <code>Link</code></span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-2" value="b"><span>Az <code>X-API-Deprecated</code> és az <code>X-API-Sunset</code></span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-2" value="c"><span>Az <code>Expires</code> és a <code>Retry-After</code></span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-2" value="d"><span>A <code>Deprecation</code> és a <code>Sunset</code>, végül pedig <code>410 Gone</code> egy problem-dokumentummal, ami a migrációs útmutatóra mutat.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A verziózás fontosabbik fele a kivezetési folyamat.</b> Jelentsd be, állítsd be a fejléceket, mérd, ki hívja még, majd kapcsold ki — olyan válasszal, ami megmondja, hova menjenek tovább.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi a valódi válasz arra, hogy „hogyan verziózol egy API-t”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-3" value="a"><span>Verziózz a lehető legritkábban, additív változtatásokkal, és a v2-t olyan költségként kezeld, amit csak egy törő újratervezésért fizetsz ki.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-3" value="b"><span>Verziózz végpontonként külön, hogy a kliensek darabonként migrálhassanak.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-3" value="c"><span>Ne verziózz; használj feature flageket.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-3" value="d"><span>Válassz dátumalapú verziózást, mint a Stripe.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Minden kiadott verzió egy karbantartandó verzió.</b> A stratégia kérdése valós, de másodlagos — az additív változtatás fegyelme az, ami az élő verziók számát egyen tartja.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="compat">
+          <h3>Mi számít törő változtatásnak</h3>
+          <div class="versus">
+            <div>
+              <h4>Biztonságos (additív)</h4>
+              <ul>
+                <li>Új opcionális kérésmező felvétele</li>
+                <li>Új mező a válaszban</li>
+                <li>Új végpont vagy új opcionális query paraméter</li>
+                <li>Új enum-érték, ha a kliensek <em>csak olvassák és megjelenítik</em></li>
+              </ul>
+            </div>
+            <div>
+              <h4>Törő</h4>
+              <ul>
+                <li>Mező törlése vagy átnevezése; a típusa megváltoztatása</li>
+                <li>Opcionális kérésmező kötelezővé tétele, vagy szigorúbb validáció</li>
+                <li>Státuszkód, hiba-<code>type</code> vagy alapértelmezett rendezés megváltoztatása</li>
+                <li>Új enum-érték, amire a kliensek <em>elágaznak</em> — és a lapozási alapértékek módosítása</li>
+              </ul>
+            </div>
+          </div>
+          <p>Ennek a kliensoldali párja Postel elvének egy élesebb változata: legyél <b>toleráns olvasó</b>. Az ismeretlen mezőket hagyd figyelmen kívül ahelyett, hogy hibáznál, ne támaszkodj a kulcsok sorrendjére, ne feltételezd, hogy az enum-értékek halmaza zárt, és minden váratlan 5xx-et kezelj újrapróbálhatóként, ne végzetesként. PHP-ban ez azt jelenti, hogy a JSON-t mezőnként képezed le DTO-kra, nem az egész alakot állítod, és minden külső enumon átmenő <code>match</code>-nek van default ága.</p>
+          <div class="note"><b>Szerződéstesztelés.</b> A hiteles módja annak, hogy tudd, nem törtél el senkit: OpenAPI-dokumentum verziókezelésben, egy diff eszköz a CI-ban, ami törő változtatásnál elbukik, és fogyasztóvezérelt szerződéstesztek a belső fogyasztókhoz. Az „észrevennénk kódátnézésen” senior szinten nem válasz.</div>
+          <p class="asked"><b>Így kérdezik</b> — „Törő változtatás egy új mező a válaszban?” Általában nem — hacsak egy kliens zárt sémára nem validál, és pontosan ezért publikálsz olyan sémát, ami megengedi a többletmezőket, és mondod is ezt a dokumentációban.</p>
+          <details class="quiz" id="quiz-compat"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Törő változtatás-e egy mező hozzáadása a válaszhoz?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-1" value="a"><span>Mindig, mert a kliensek validálják az alakot.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-1" value="b"><span>Általában nem — hacsak egy kliens zárt sémára nem validál, és épp ezért publikálsz olyan sémát, ami megengedi a további tulajdonságokat, és ezt ki is mondod a dokumentációban.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-1" value="c"><span>Csak akkor, ha a mező kötelező.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-1" value="d"><span>Csak XML API-knál.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A válasz a kliens toleranciájáról szól, ezért tedd azt a toleranciát kimondottá.</b> A párja az, hogy te magad is toleráns olvasó légy: hagyd figyelmen kívül az ismeretlen mezőket, ne támaszkodj a kulcssorrendre, és tarts alapértelmezett ágat minden külső enum fölötti <code>match</code>-ben.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Melyik törő változtatás az alábbiak közül?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-2" value="a"><span>Egy új, opcionális query paraméter hozzáadása.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-2" value="b"><span>Egy új végpont hozzáadása.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-2" value="c"><span>A validáció szigorítása, amitől egy korábban elfogadott kérés mostantól elutasításra kerül.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-2" value="d"><span>Egy mező hozzáadása a válaszhoz.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Bármi, amitől egy működő kérés hibássá válik, töri a klienseket</b>, akkor is, ha a sémából semmi nem tűnt el. Ugyanebbe a kategóriába tartozik: státuszkód, hiba-<code>type</code>, alapértelmezett rendezés vagy lapozási alapértelmezés megváltoztatása.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Honnan tudod ténylegesen, hogy nem törtél el senkit?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-3" value="a"><span>Staging elleni integrációs tesztekből.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-3" value="b"><span>A deploy utáni hibaarány figyeléséből.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-3" value="c"><span>Gondos kódátvizsgálásból.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-3" value="d"><span>Verziókövetett OpenAPI-dokumentumból, egy CI-ban futó diff eszközből, ami törő változásnál elbuktatja a buildet, és fogyasztóvezérelt szerződéstesztekből a belső fogyasztókra.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A „észrevennénk kódátvizsgáláson” senior szinten nem válasz.</b> A sémának ellenőrzött műterméknek kell lennie, nem dokumentációnak — különben a garancia azon múlik, ki olvasta el épp a diffet.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="psr-http">
+          <h3>A PHP-oldal: PSR-7, 15, 17, 18</h3>
+          <p>Ez a négy szabvány teszi a fentieket keretrendszer-függetlenné: <b>PSR-7</b> immutábilis kérés/válasz objektumok, <b>PSR-17</b> factory-k a létrehozásukhoz, <b>PSR-15</b> middleware és kéréskezelő, <b>PSR-18</b> kliensinterfész a kimenő hívásokhoz.</p>
+          <pre class="code"><code class="language-php">final class RateLimitMiddleware implements MiddlewareInterface   // PSR-15
+{
+    public function __construct(
+        private RateLimiter $limiter,
+        private ResponseFactoryInterface $responses,              // PSR-17
+    ) {}
+
+    public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
+    {
+        $key = $request-&gt;getAttribute('api_key');
+        $verdict = $this-&gt;limiter-&gt;consume($key);
+
+        if (!$verdict-&gt;allowed) {
+            return $this-&gt;responses-&gt;createResponse(429)
+                -&gt;withHeader('Retry-After', (string) $verdict-&gt;retryAfter)
+                -&gt;withHeader('RateLimit', "limit={$verdict-&gt;limit}, remaining=0, reset={$verdict-&gt;retryAfter}");
+        }
+
+        // A PSR-7 üzenetek immutábilisak: minden wither új példányt ad vissza.
+        return $handler-&gt;handle($request)
+            -&gt;withHeader('RateLimit', "limit={$verdict-&gt;limit}, remaining={$verdict-&gt;remaining}");
+    }
+}</code></pre>
+          <p>Az immutabilitáson szoktak elcsúszni: a <code>$response-&gt;withHeader(...)</code> <em>új</em> választ ad vissza, és nem csinál semmit, ha eldobod a visszatérési értéket. A middleware hagymaként épül egymásra — minden réteg vagy rövidre zár a <code>$handler-&gt;handle()</code> előtt (autentikáció, rate limit, cache), vagy kifelé jövet díszít (fejlécek, időmérés, korrelációs azonosító).</p>
+          <p class="asked"><b>Így kérdezik</b> — „Miért immutábilisak a PSR-7 üzenetek?” Hogy egy üzenetet ne lehessen módosítani egy olyan middleware alól, ami már megvizsgálta; ettől lesz a lánc kiszámítható és szálbiztos hosszan futó szervereken (RoadRunner, Swoole, FrankenPHP). A PSR-verem többi részét a PHP kézikönyv szabványok része fedi le.</p>
+          <details class="quiz" id="quiz-psr-http"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Miért immutábilisak a PSR-7 üzenetei?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-1" value="a"><span>Hogy egy üzenet ne változhasson meg egy már megvizsgáló middleware alatt, amitől a pipeline kiszámítható és hosszan futó szervereken is biztonságos marad.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-1" value="b"><span>Mert a PHP-objektumok referencia szerint adódnak át.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-1" value="c"><span>Hogy cache-elhetők legyenek.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-1" value="d"><span>Hogy szerializálhatók legyenek.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Kiszámíthatóság a hagymában.</b> RoadRunnerben, Swoole-ban vagy FrankenPHP-ben ugyanaz a worker sok kérést szolgál ki, és a közös, módosítható kérésobjektum pontosan az a hiba, amit az immutabilitás megszüntet.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mit tehet egy PSR-15 middleware befelé és kifelé menet?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-2" value="a"><span>Csak az egyiket; egy middleware vagy szűrő, vagy dekorátor.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-2" value="b"><span>Rövidre zárhat a <code>$handler-&gt;handle()</code> előtt — hitelesítés, rate limit, cache —, vagy kifelé menet dekorálhatja a választ fejlécekkel, időméréssel, korrelációs azonosítóval.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-2" value="c"><span>Csak a kérést alakítja; a választ a kéréskezelő intézi.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-2" value="d"><span>Csak a controller után fut, előtte soha.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Ez a hagyma.</b> Két apró interfész — <code>MiddlewareInterface</code> és <code>RequestHandlerInterface</code> —, és az egész kompozíciós modell ebből esik ki.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Miért létezik a PSR-17 a PSR-7 mellett?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-3" value="a"><span>Hogy immutabilitási segédeszközöket adjon.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-3" value="b"><span>Hogy fájlfeltöltést adjon hozzá.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-3" value="c"><span>Mert a PSR-7 interfészei nem deklarálnak konstruktort, így factoryk nélkül minden választ építő könyvtárnak konkrét implementációt kellene megneveznie.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-3" value="d"><span>Hogy definiálja a stream absztrakciót.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Interfészt nem lehet <code>new</code>-val példányosítani.</b> A <code>ResponseFactoryInterface</code> injektálásával a Guzzle vagy Nyholm közti választás az alkalmazásnál marad — ez a lényege egy keretrendszer-független csomagnak.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="closing">
+        <header>
+          <h2>Zárás</h2>
+          <span class="count">1 téma</span>
+        </header>
+
+        <article class="topic" id="rapid">
+          <h3>Az egysorosok, amiket érdemes készenlétben tartani</h3>
+          <dl class="rapid">
+            <div><dt><code>PUT</code> vagy <code>POST</code> létrehozáshoz</dt><dd><code>POST</code>, ha a szerver adja az azonosítót; <code>PUT</code>, ha a kliens, és az URI előre ismert.</dd></div>
+            <div><dt>Törzs a <code>GET</code>-en</dt><dd>Már nem kifejezetten tiltott, de a proxyk, cache-ek és kliensek eldobják. Sose tervezz ilyet.</dd></div>
+            <div><dt>Miért nincs törzs a <code>204</code>-en</dt><dd>A szabvány mondja ki — amit odaírsz, azt a közbenső elemek csendben eldobhatják.</dd></div>
+            <div><dt>CORS preflight</dt><dd>Az <code>OPTIONS</code> kérés, amit a böngésző nem egyszerű cross-origin hívás előtt küld. A CORS böngészőpolitika, nem szerverbiztonság.</dd></div>
+            <div><dt><code>Authorization</code> és cache</dt><dd>Hitelesített kérésre adott válasz nem megosztott-cache-elhető, hacsak kifejezetten nem engeded. Adj <code>private</code>-ot vagy <code>no-store</code>-t.</dd></div>
+            <div><dt>A HTTP/2 nem változtat a szemantikán</dt><dd>Ugyanazok a metódusok, fejlécek, státuszkódok; más keretezés. A domain sharding és a sprite-ok viszont antimintává váltak.</dd></div>
+            <div><dt>Időtúllépések</dt><dd>Minden kimenő hívásnak kell kapcsolódási és teljes időkorlát. A hiányzó timeout az, amitől egy lassú upstream kimeríti az FPM-poolodat.</dd></div>
+            <div><dt>Csak azt ismételd, ami biztonságos</dt><dd>Idempotens metódusokat, vagy bármit, ami idempotencia-kulcsot visz. Mindig jitterrel.</dd></div>
+            <div><dt>Circuit breaker</dt><dd>N egymást követő hiba után ne hívj, bukj gyorsan egy lehűlési időre. Téged véd az upstreamtől, az upstreamet tőled.</dd></div>
+            <div><dt>Webhookok</dt><dd>Írd alá a törzset (HMAC + időbélyeg), számíts duplikátumokra, válaszolj gyorsan <code>2xx</code>-szel, és aszinkron dolgozd fel.</dd></div>
+            <div><dt><code>Location</code> a <code>201</code>-en</dt><dd>Küldd el. A kliensek és a tesztek építenek rá, és ez a leghitelesebb olcsó hipermédia.</dd></div>
+            <div><dt>Tömeges műveletek</dt><dd>A <code>207 Multi-Status</code> létezik, de a klienseknek egyszerűbb egy elemenkénti eredménytömb <code>200</code> alatt. Döntsd el, atomi-e a köteg, és dokumentáld.</dd></div>
+            <div><dt>Hosszan futó munka</dt><dd><code>202 Accepted</code>, plusz egy job-erőforrás, amit a kliens lekérdez, vagy webhook. Ne tartsd nyitva a kapcsolatot.</dd></div>
+            <div><dt>Záró perjelek</dt><dd>Válassz egy alakot, a másikat <code>301</code>-gyel irányítsd át. Két URI egy erőforrásra két cache-bejegyzést jelent.</dd></div>
+          </dl>
+          <details class="quiz" id="quiz-rapid"
+            data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
+            data-score-empty="Még nincs elkezdve.">
+            <summary>Ellenőrizd magad — 3 kérdés a témából</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">Mindegyiknél egy helyes válasz van. A választásaidat ez a böngésző megjegyzi, így legközelebb is itt lesznek.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt"><code>PUT</code> vagy <code>POST</code> egy erőforrás létrehozásához?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="a"><span><code>PUT</code>, mert idempotens.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="b"><span>Bármelyik; létrehozásra felcserélhetők.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="c"><span>Mindig <code>POST</code>; a <code>PUT</code> a módosításé.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="d"><span><code>POST</code>, ha a szerver adja az azonosítót; <code>PUT</code>, ha a kliens, és az URI előre ismert.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Az dönt a metódusról, ki választja az URI-t.</b> Kapcsolódó egysoros: a <code>201</code> mindig hozzon <code>Location</code>-t — a kliensek és a tesztkészletek erre támaszkodnak, és ez a legolcsóbb hipermédia, amit valaha szállítasz.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Mi a CORS preflight, és mit véd a CORS?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="a"><span>Egy <code>OPTIONS</code> kérés, amit a böngésző küld egy nem egyszerű kereszthelyközi hívás előtt; a CORS böngészőpolitika, nem szerveroldali biztonság.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="b"><span>Egy <code>HEAD</code> kérés, ami ellenőrzi, létezik-e a végpont; a szervert védi az illetéktelen originektől.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="c"><span>Kézfogás, ami hitelesíti az origint a valódi kérés előtt.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="d"><span>A CDN által végzett cache-bemelegítés.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>A CORS a böngészőben lazítja az azonos eredet elvét; a curl felől érkezőből semmit nem állít meg.</b> Hozzáférés-vezérlésnek tekinteni gyakori és következményes félreértés.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Mire van szüksége minden kimenő HTTP-hívásnak?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="a"><span>Újrapróbálkozási szabályra.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="b"><span>Kapcsolódási és teljes időkorlátra — a hiányzó időkorláttól meríti ki egyetlen lassú upstream az FPM-poolodat.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="c"><span>Áramkör-megszakítóra.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="d"><span>Idempotencia-kulcsra.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Először időkorlát; a többi erre épül.</b> Aztán csak azt próbáld újra, ami biztonságos — idempotens metódusok, vagy bármi, ami idempotencia-kulcsot hordoz —, mindig jitterrel, és tegyél mellé áramkör-megszakítót, hogy N egymást követő hiba után egy lehűlési időre leálljanak a hívások.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Még nincs elkezdve.</p>
+                <button type="button" class="quiz-reset">Válaszaim törlése</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <footer class="end">
+        <p>A státuszkódok és a fejlécszemantika az RFC 9110-et (HTTP Semantics) követi; a problem details az RFC 9457-et, ami leváltotta az RFC 7807-et. Társdokumentumok: a PHP OOP és PSR kézikönyv, valamint az Autentikáció és jogosultságkezelés kézikönyv mindenhez, ami az <code>Authorization:</code> mögött van.</p>
+      </footer>
+
+    </main>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup-templating.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-php.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-http.min.js"></script>
+<script src="../assets/guide.js"></script>
+</body>
+</html>

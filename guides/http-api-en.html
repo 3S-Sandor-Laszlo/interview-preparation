@@ -1,0 +1,1489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTTP &amp; API Design Field Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topbar" aria-label="Guides">
+    <a class="home" href="../index.html">PHP Field Guides</a>
+    <ul>
+      <li><a href="php-en.html">PHP OOP &amp; PSR</a></li>
+      <li><a href="http-api-en.html" aria-current="page">HTTP &amp; API</a></li>
+      <li><a href="auth-en.html">Authentication</a></li>
+      <li><a href="architecture-en.html">Architecture</a></li>
+    </ul>
+  </nav>
+
+  <header class="masthead">
+    <p class="eyebrow">Interview preparation · senior track</p>
+    <h1>HTTP &amp; API Design Field Guide</h1>
+    <p class="standfirst">The protocol a senior PHP engineer is assumed to know cold, and the design decisions on top of it: resource modelling, status codes, versioning, idempotency, rate limiting and cache headers — each with the shortest example that demonstrates it, plus the question it usually arrives as.</p>
+    <div class="meta-row">
+      <span>Companion to the <b>PHP OOP &amp; PSR</b> guide</span>
+      <span>Current as of <b>Sept 2026</b></span>
+      <span><b>18</b> topics</span>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <nav class="toc" aria-label="Contents">
+      <div class="filter">
+        <input id="filter" type="search" placeholder="Filter topics…" aria-label="Filter topics">
+      </div>
+      <h2>The protocol</h2>
+      <ol>
+        <li><a href="#anatomy">Request &amp; response anatomy</a></li>
+        <li><a href="#methods">Methods &amp; their properties</a></li>
+        <li><a href="#status">Status codes that get asked</a></li>
+        <li><a href="#negotiation">Content negotiation</a></li>
+        <li><a href="#conditional">Conditional requests &amp; ETags</a></li>
+        <li><a href="#caching">Cache headers</a></li>
+      </ol>
+      <h2>Resource design</h2>
+      <ol>
+        <li><a href="#resources">Resources, not RPC</a></li>
+        <li><a href="#collections">Collections &amp; pagination</a></li>
+        <li><a href="#relations">Relationships &amp; payload shape</a></li>
+        <li><a href="#maturity">Richardson &amp; HATEOAS</a></li>
+      </ol>
+      <h2>Reliability</h2>
+      <ol>
+        <li><a href="#idempotency">Idempotency keys</a></li>
+        <li><a href="#concurrency">Optimistic concurrency</a></li>
+        <li><a href="#ratelimit">Rate limiting</a></li>
+        <li><a href="#errors">Error format: RFC 9457</a></li>
+      </ol>
+      <h2>Evolution</h2>
+      <ol>
+        <li><a href="#versioning">Versioning &amp; deprecation</a></li>
+        <li><a href="#compat">What counts as a break</a></li>
+        <li><a href="#psr-http">The PHP side: PSR-7/15/17/18</a></li>
+      </ol>
+      <h2>Closing</h2>
+      <ol>
+        <li><a href="#rapid">Rapid-fire gotchas</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <section class="part" id="protocol">
+        <header>
+          <h2>The protocol</h2>
+          <span class="count">6 topics</span>
+        </header>
+        <p class="part-intro">Most API questions are really HTTP questions wearing a costume. If you can say precisely what a method guarantees and what a status code promises the client, the design answers follow from there.</p>
+
+        <article class="topic" id="anatomy">
+          <h3>Request and response anatomy</h3>
+          <p>A request is a method, a target, headers, and an optional body. A response is a status line, headers, and an optional body. Everything else — REST, GraphQL, webhooks — is a convention layered on those four parts.</p>
+          <pre class="code"><code class="language-http">POST /v1/payments HTTP/1.1
+Host: api.example.com
+Content-Type: application/json
+Idempotency-Key: 0f9c1b2e-6d31-4a55-9f0b-2b7a1c8e4d33
+Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6ImsxIn0...
+
+{"amount": 1500, "currency": "HUF"}</code></pre>
+          <pre class="code"><code class="language-http">HTTP/1.1 201 Created
+Location: /v1/payments/pay_8127
+Content-Type: application/json
+ETag: "3f1c9a"
+Cache-Control: no-store
+
+{"id": "pay_8127", "status": "succeeded", "amount": 1500}</code></pre>
+          <p>Two properties are worth naming out loud because they explain most of the protocol: HTTP is <b>stateless</b> (the server keeps no client context between requests — anything it needs must be in the request), and headers are <b>metadata about the message</b>, not about the resource. HTTP/2 and HTTP/3 change the transport (binary framing, multiplexing, no head-of-line blocking on QUIC) but not this semantic model.</p>
+          <p class="asked"><b>Asked as</b> — “HTTP is stateless, so how do logins work?” The state lives in a cookie or token that the client re-sends on every request; the server may keep a session store, but the <em>protocol</em> still carries no memory between requests. That is exactly why load balancing across FPM workers works at all.</p>
+          <details class="quiz" id="quiz-anatomy"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">HTTP is stateless. How do logins work, then?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-1" value="a"><span>The state lives in a cookie or token the client re-sends on every request; any server-side session store is an application detail, not a protocol feature.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-1" value="b"><span>HTTP/2 added session state to the connection.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-1" value="c"><span>The <code>Host</code> header identifies the session.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-1" value="d"><span>The server keeps a connection open per logged-in user.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The protocol carries no memory between requests.</b> Everything the server needs must arrive with the request — which is exactly why load balancing across interchangeable FPM workers works at all.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What do HTTP/2 and HTTP/3 change?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-2" value="a"><span>The methods and status codes, which were redesigned around streams.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-2" value="b"><span>The transport only — binary framing, multiplexing, and on QUIC no head-of-line blocking — leaving the semantic model untouched.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-2" value="c"><span>The header syntax, which became JSON.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-2" value="d"><span>Nothing; they are transport encodings of the same bytes.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Same methods, same headers, same status codes.</b> Knowing that the semantics are unchanged is what lets you say that domain sharding and sprite sheets became anti-patterns under HTTP/2 without anything else about your API changing.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Headers are metadata about what?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-3" value="a"><span>The client's session.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-3" value="b"><span>The resource being addressed.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-3" value="c"><span>The message itself — this particular request or response.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-anatomy-3" value="d"><span>The connection.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The distinction matters in practice.</b> <code>Content-Type</code> describes the body you are looking at, not the resource in the abstract — which is why the same resource can be sent as JSON or XML, each message describing itself.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="methods">
+          <h3>Methods and the three properties</h3>
+          <p>Safe means “no intended side effects”. Idempotent means “N identical requests leave the same server state as one”. Cacheable means “a response may be reused without asking again”. These are contracts you promise to clients, not observations about your controller.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Method</th><th>Safe</th><th>Idempotent</th><th>Cacheable</th><th>Body</th></tr></thead>
+              <tbody>
+                <tr><td><code>GET</code></td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+                <tr><td><code>HEAD</code></td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+                <tr><td><code>OPTIONS</code></td><td>Yes</td><td>Yes</td><td>No</td><td>No</td></tr>
+                <tr><td><code>POST</code></td><td>No</td><td><b>No</b></td><td>Rarely (needs explicit freshness)</td><td>Yes</td></tr>
+                <tr><td><code>PUT</code></td><td>No</td><td>Yes</td><td>No</td><td>Yes</td></tr>
+                <tr><td><code>PATCH</code></td><td>No</td><td><b>No</b> (unless you design it so)</td><td>No</td><td>Yes</td></tr>
+                <tr><td><code>DELETE</code></td><td>No</td><td>Yes</td><td>No</td><td>Optional</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="versus">
+            <div>
+              <h4>PUT</h4>
+              <ul>
+                <li>Full replacement of the resource at that URI</li>
+                <li>Client chooses the URI; may create it</li>
+                <li>Idempotent by definition</li>
+                <li>Missing fields mean “unset”, not “leave alone”</li>
+              </ul>
+            </div>
+            <div>
+              <h4>PATCH</h4>
+              <ul>
+                <li>Partial modification, described by a patch document</li>
+                <li><code>application/merge-patch+json</code> (RFC 7386) or <code>application/json-patch+json</code> (RFC 6902)</li>
+                <li>Not idempotent in general — <code>{"op":"add","path":"/tags/-"}</code> appends every time</li>
+                <li><code>null</code> in a merge patch <b>deletes</b> the member</li>
+              </ul>
+            </div>
+          </div>
+          <div class="note"><b>The one that catches people.</b> <code>DELETE</code> is idempotent even though the second call returns <code>404</code>. Idempotency is about <em>resulting state</em>, not about identical responses. The same logic makes <code>PUT</code> idempotent while a <code>POST /orders</code> that mints a new order every time is not.</div>
+          <p class="asked"><b>Asked as</b> — “Is <code>POST</code> ever idempotent?” Not by the protocol, so a client may not retry it blindly. You can <em>make</em> a specific endpoint idempotent with an <code>Idempotency-Key</code> — see the reliability section — but that is your contract, not HTTP's.</p>
+          <details class="quiz" id="quiz-methods"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt"><code>DELETE</code> is idempotent even though a second call returns <code>404</code>. Why?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-1" value="a"><span>Because the first response is cached and replayed.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-1" value="b"><span>It is not idempotent; that is a common misconception.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-1" value="c"><span>Because <code>404</code> is treated as success for <code>DELETE</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-1" value="d"><span>Because idempotency is about the resulting server state, not about identical responses.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>N identical requests leave the same state as one.</b> The resource is gone either way. The same reasoning makes <code>PUT</code> idempotent and a <code>POST /orders</code> that mints a new order every time not.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What is the practical difference between <code>PUT</code> and a merge patch?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-2" value="a"><span><code>PUT</code> fully replaces the resource, so a missing field means “unset”; a merge patch touches only the members present, and an explicit <code>null</code> deletes one.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-2" value="b"><span><code>PATCH</code> is idempotent and <code>PUT</code> is not.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-2" value="c"><span><code>PUT</code> requires a body, <code>PATCH</code> does not.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-2" value="d"><span><code>PUT</code> is for creation, <code>PATCH</code> for updates.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The omitted-field rule is the trap.</b> Clients that send a partial document to <code>PUT</code> silently wipe everything they left out. Note too that <code>PATCH</code> is not idempotent in general — a JSON Patch <code>{"op":"add","path":"/tags/-"}</code> appends on every replay.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Is <code>POST</code> ever idempotent?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-3" value="a"><span>Yes, whenever the handler happens to be written that way — clients may retry it.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-3" value="b"><span>No by protocol, so a client may not retry it blindly; you can make a specific endpoint safe to retry with an <code>Idempotency-Key</code>, but that is your contract rather than HTTP's.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-3" value="c"><span>Yes, if the response is <code>201</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-methods-3" value="d"><span>No, and no mechanism can make it so.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Safe, idempotent and cacheable are promises to clients</b>, not observations about your controller. A generic client only knows what the method guarantees, which is why the key has to be explicit and documented.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="status">
+          <h3>The status codes that actually get asked</h3>
+          <p>Nobody is checking whether you memorised 226 IM Used. They are checking the pairs that are easy to confuse, because each pair encodes a design decision.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Code</th><th>Means</th><th>Use it when</th></tr></thead>
+              <tbody>
+                <tr><td class="num">200</td><td>OK</td><td>Success with a body — including a successful <code>DELETE</code> that returns the tombstone</td></tr>
+                <tr><td class="num">201</td><td>Created</td><td>A new resource exists; send <code>Location</code></td></tr>
+                <tr><td class="num">202</td><td>Accepted</td><td>Queued, not done. Point at a status resource — the honest answer for async work</td></tr>
+                <tr><td class="num">204</td><td>No Content</td><td>Success, deliberately no body (typical <code>DELETE</code>, or a <code>PUT</code> with nothing to return)</td></tr>
+                <tr><td class="num">301 / 308</td><td>Moved permanently</td><td>308 preserves the method; 301 historically let clients switch <code>POST</code> to <code>GET</code></td></tr>
+                <tr><td class="num">303 / 307</td><td>See Other / Temporary</td><td>303 sends the client to a <code>GET</code>; 307 keeps method and body</td></tr>
+                <tr><td class="num">304</td><td>Not Modified</td><td>Answer to a conditional <code>GET</code>; no body, revalidation succeeded</td></tr>
+                <tr><td class="num">400</td><td>Bad Request</td><td>Malformed syntax — unparseable JSON, missing required parameter</td></tr>
+                <tr><td class="num">401</td><td>Unauthorized</td><td>Actually <em>unauthenticated</em>. Must send <code>WWW-Authenticate</code></td></tr>
+                <tr><td class="num">403</td><td>Forbidden</td><td>Authenticated, identity understood, not allowed. Re-authenticating will not help</td></tr>
+                <tr><td class="num">404</td><td>Not Found</td><td>No such resource — also the right answer when existence itself is confidential</td></tr>
+                <tr><td class="num">405</td><td>Method Not Allowed</td><td>URI exists, verb does not. Must send <code>Allow</code></td></tr>
+                <tr><td class="num">409</td><td>Conflict</td><td>State collision: duplicate unique key, or an edit against a stale version</td></tr>
+                <tr><td class="num">410</td><td>Gone</td><td>It existed and was intentionally removed — useful for retired API versions</td></tr>
+                <tr><td class="num">412</td><td>Precondition Failed</td><td><code>If-Match</code> did not match — optimistic locking rejected the write</td></tr>
+                <tr><td class="num">415</td><td>Unsupported Media Type</td><td>Body content type you do not accept</td></tr>
+                <tr><td class="num">422</td><td>Unprocessable Content</td><td>Syntactically fine, semantically invalid — the validation-error code</td></tr>
+                <tr><td class="num">428</td><td>Precondition Required</td><td>You demand <code>If-Match</code> and the client sent none — prevents blind overwrites</td></tr>
+                <tr><td class="num">429</td><td>Too Many Requests</td><td>Rate limited. Send <code>Retry-After</code></td></tr>
+                <tr><td class="num">500</td><td>Internal Server Error</td><td>Your bug. Never leak the stack trace</td></tr>
+                <tr><td class="num">502 / 503 / 504</td><td>Bad Gateway / Unavailable / Timeout</td><td>Upstream broken / you are down or overloaded / upstream too slow. 503 takes <code>Retry-After</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note"><b>400 vs 422.</b> If the parser choked, it is <code>400</code>. If the document parsed and then failed your rules — “end date before start date”, “IBAN checksum wrong” — it is <code>422</code>. Some teams standardise on <code>400</code> for both; that is defensible, but say so deliberately rather than by accident.</div>
+          <p class="asked"><b>Asked as</b> — “401 or 403 for an expired token?” <code>401</code> with <code>WWW-Authenticate</code>, because re-authenticating fixes it. <code>403</code> means the credentials were fine and the answer is still no. The follow-up is usually “what about a valid token missing a scope?” — <code>403</code>.</p>
+          <details class="quiz" id="quiz-status"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">A request body parsed fine but failed your business rules — “end date before start date”. Which status?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-status-1" value="a"><span>500 Internal Server Error</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-1" value="b"><span>400 Bad Request</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-1" value="c"><span>422 Unprocessable Content</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-1" value="d"><span>409 Conflict</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>400 means the parser choked; 422 means the document was understood and rejected.</b> Standardising on 400 for both is defensible — but say so deliberately rather than by accident.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">A valid token has expired. Is that 401 or 403?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-status-2" value="a"><span>403, because the request was refused.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-2" value="b"><span>401 only if the token was malformed; 403 if it merely expired.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-2" value="c"><span>419, the session-expired code.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-2" value="d"><span>401, with a <code>WWW-Authenticate</code> header, because re-authenticating fixes it.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>401 means “authenticate and try again”; 403 means “the credentials were fine and the answer is still no”.</b> The usual follow-up — a valid token missing a scope — is 403, because re-authenticating would not help.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">When should an endpoint return <code>202 Accepted</code>?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-status-3" value="a"><span>When the request was queued rather than completed — and the response points at a status resource the client can poll.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-3" value="b"><span>Instead of <code>201</code>, when the resource id is not yet known.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-3" value="c"><span>When the client must retry later.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-status-3" value="d"><span>Whenever the work takes longer than a second.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>202 is the honest answer for async work</b>, and it is only honest if you give the client somewhere to look. Compare: <code>201</code> means the resource exists now and carries <code>Location</code>; <code>204</code> means success with deliberately no body.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="negotiation">
+          <h3>Content negotiation</h3>
+          <p>The client states preferences in <code>Accept</code>, <code>Accept-Language</code> and <code>Accept-Encoding</code>; the server picks a representation and reports it in <code>Content-Type</code> and <code>Content-Language</code>. Quality values order the preferences.</p>
+          <pre class="code"><code class="language-http">Accept: application/vnd.example.order+json;version=2, application/json;q=0.8, */*;q=0.1
+Accept-Language: hu-HU, hu;q=0.9, en;q=0.5
+Accept-Encoding: br, gzip</code></pre>
+          <p>Two rules that matter in review: return <code>406</code> only if you genuinely cannot satisfy any acceptable type (in practice most APIs just serve JSON), and <b>always send <code>Vary</code></b> naming every request header the representation depended on — otherwise a shared cache serves the Hungarian body to an English client.</p>
+          <pre class="code"><code class="language-http">Vary: Accept, Accept-Language, Authorization</code></pre>
+          <p class="asked"><b>Asked as</b> — “Where does versioning fit into content negotiation?” A custom media type (<code>application/vnd.example.order+json;version=2</code>) versions the <em>representation</em> rather than the URI space. It is the purist answer; the versioning topic covers why most teams still put <code>/v1</code> in the path.</p>
+          <details class="quiz" id="quiz-negotiation"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Why must a negotiated response send a <code>Vary</code> header?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-1" value="a"><span>To tell the client which representations exist.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-1" value="b"><span>Because a shared cache keys on the URI alone otherwise, and will serve the Hungarian body to an English client.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-1" value="c"><span>Because HTTP/2 requires it for header compression.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-1" value="d"><span>To enable conditional requests.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b><code>Vary</code> names every request header the representation depended on.</b> Forget it and the CDN happily reuses one client's negotiated response for everyone — the same class of bug as caching an authenticated response publicly.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">When is <code>406 Not Acceptable</code> the right response?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-2" value="a"><span>When the client omits <code>Accept</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-2" value="b"><span>Whenever the <code>Accept</code> header does not exactly match the response type.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-2" value="c"><span>Only when you genuinely cannot satisfy any acceptable type — in practice most APIs just serve JSON regardless.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-2" value="d"><span>When the request body has the wrong <code>Content-Type</code>.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>406 is rarer than people think.</b> A wrong <em>request</em> body type is <code>415 Unsupported Media Type</code>, which is the code that actually comes up. Serving your one format is friendlier than refusing.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">How does a custom media type version an API?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-3" value="a"><span>It requires a new domain per version.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-3" value="b"><span>It only works for XML.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-3" value="c"><span>It versions the URI space, like <code>/v2/orders</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-negotiation-3" value="d"><span>It versions the representation: <code>application/vnd.example.order+json;version=2</code> negotiated through <code>Accept</code>.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>It is the purist answer</b>, and correct by HTTP semantics: the resource kept its identity, only its representation changed. Most teams still put <code>/v1</code> in the path because it is greppable in logs and testable with a curl one-liner.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="conditional">
+          <h3>Conditional requests: ETag and Last-Modified</h3>
+          <p>A validator lets the client ask “has this changed?” without transferring the body, and lets the server ask “is your copy still current?” before accepting a write. <code>ETag</code> is an opaque version token; <code>Last-Modified</code> has one-second resolution, so prefer <code>ETag</code>.</p>
+          <pre class="code"><code class="language-http">GET /v1/orders/8127
+If-None-Match: "3f1c9a"
+
+HTTP/1.1 304 Not Modified
+ETag: "3f1c9a"</code></pre>
+          <pre class="code"><code class="language-php">// Strong ETag from the row version; weak (W/"...") if the body may vary cosmetically.
+$etag = '"' . $order->version . '-' . $order->updatedAt->format('U') . '"';
+
+$response = $response->withHeader('ETag', $etag);
+
+$ifNoneMatch = $request->getHeaderLine('If-None-Match');
+if ($ifNoneMatch !== '' &amp;&amp; in_array($etag, array_map('trim', explode(',', $ifNoneMatch)), true)) {
+    return $response->withStatus(304)->withBody($emptyStream);   // no body on 304
+}</code></pre>
+          <div class="note"><b>Strong vs weak.</b> <code>W/"abc"</code> means “semantically equivalent”, and weak validators may not be used for range requests or for <code>If-Match</code> on writes. If your ETag is a hash of the serialised body, it is strong; if it ignores whitespace or generated timestamps, mark it weak.</div>
+          <p class="asked"><b>Asked as</b> — “How do you avoid sending the same payload again?” <code>ETag</code> plus <code>If-None-Match</code> gives you <code>304</code>s that cost one round trip and no body. Mention that the same validator does double duty for optimistic locking on writes — that is the answer that sounds senior.</p>
+          <details class="quiz" id="quiz-conditional"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Why prefer <code>ETag</code> over <code>Last-Modified</code>?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-1" value="a"><span><code>Last-Modified</code> has one-second resolution, so two changes within the same second are indistinguishable; an <code>ETag</code> is an opaque token that changes whenever the representation does.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-1" value="b"><span><code>ETag</code> is smaller on the wire.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-1" value="c"><span><code>ETag</code> works with shared caches and <code>Last-Modified</code> does not.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-1" value="d"><span><code>Last-Modified</code> is deprecated.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Resolution is the practical reason.</b> A validator that cannot tell two versions apart is worse than useless on a write path, where it would let a lost update through.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What does <code>W/"abc"</code> mean, and where may it not be used?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-2" value="a"><span>A weak validator, usable everywhere but ignored by browsers.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-2" value="b"><span>A weak validator — semantically equivalent rather than byte-identical — and it may not be used for range requests or for <code>If-Match</code> on writes.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-2" value="c"><span>A wildcard validator matching any version.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-2" value="d"><span>A validator generated by the origin rather than a proxy.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Weak means “close enough to reuse the body”, not “the same version”.</b> A hash of the serialised body is strong; one that ignores whitespace or a generated timestamp must be marked weak — and therefore cannot carry the optimistic-locking job.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What is the best answer to “how do you avoid sending the same payload again”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-3" value="a"><span>Use sparse fieldsets so the payload is smaller.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-3" value="b"><span>Compress it with <code>Content-Encoding: gzip</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-3" value="c"><span><code>ETag</code> plus <code>If-None-Match</code>, so an unchanged resource costs one round trip and a bodiless <code>304</code> — and the same validator does double duty as the precondition on writes.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-conditional-3" value="d"><span>Cache it for a long <code>max-age</code> and never revalidate.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The double duty is the part that sounds senior.</b> One token serves both revalidation (<code>If-None-Match</code> → 304) and optimistic concurrency (<code>If-Match</code> → 412).</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="caching">
+          <h3>Cache headers, and who is caching</h3>
+          <p>Three actors: the browser (private cache), a shared cache (CDN, Varnish, reverse proxy) and your application cache. <code>Cache-Control</code> is the instruction set; getting it wrong on an authenticated endpoint leaks one user's data to another.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Directive</th><th>Effect</th></tr></thead>
+              <tbody>
+                <tr><td><code>no-store</code></td><td>Do not write this anywhere. The correct header for tokens, payment bodies, anything secret</td></tr>
+                <tr><td><code>no-cache</code></td><td>You <em>may</em> store it, but revalidate before every reuse. Not the same as <code>no-store</code></td></tr>
+                <tr><td><code>private</code> / <code>public</code></td><td>Browser only / shared caches allowed too</td></tr>
+                <tr><td><code>max-age=N</code></td><td>Fresh for N seconds in any cache</td></tr>
+                <tr><td><code>s-maxage=N</code></td><td>Overrides <code>max-age</code> for shared caches only</td></tr>
+                <tr><td><code>must-revalidate</code></td><td>Once stale, never serve without checking — no “serve stale on error”</td></tr>
+                <tr><td><code>stale-while-revalidate=N</code></td><td>Serve stale for N seconds while refreshing in the background</td></tr>
+                <tr><td><code>stale-if-error=N</code></td><td>Serve stale for N seconds if the origin is failing</td></tr>
+                <tr><td><code>immutable</code></td><td>Never revalidate during freshness — for fingerprinted asset URLs</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <pre class="code"><code class="language-http">Cache-Control: public, max-age=60, s-maxage=600, stale-while-revalidate=30
+Vary: Accept, Accept-Encoding</code></pre>
+          <div class="note"><b>The leak.</b> A response to an authenticated request must be <code>private</code> (or <code>no-store</code>), and if a shared cache is in front of it you must <code>Vary: Authorization</code> — or better, mark it uncacheable. “We put a CDN in front and users started seeing each other's dashboards” is a real incident class, and interviewers know it.</div>
+          <p class="asked"><b>Asked as</b> — “Difference between <code>no-cache</code> and <code>no-store</code>?” <code>no-cache</code> stores but always revalidates; <code>no-store</code> forbids writing the response to disk or memory at all. Cache invalidation strategies beyond that: short TTL + ETag revalidation, or surrogate keys / tag-based purging at the CDN.</p>
+          <details class="quiz" id="quiz-caching"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">What is the difference between <code>no-cache</code> and <code>no-store</code>?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-1" value="a"><span><code>no-cache</code> applies to browsers, <code>no-store</code> to CDNs.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-1" value="b"><span><code>no-store</code> allows storage but forbids sharing.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-1" value="c"><span>They are synonyms.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-1" value="d"><span><code>no-cache</code> permits storing but requires revalidation before every reuse; <code>no-store</code> forbids writing the response anywhere at all.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b><code>no-store</code> is the one for secrets</b> — tokens, payment bodies. <code>no-cache</code> is a freshness instruction and is perfectly compatible with an <code>ETag</code>-based revalidation strategy.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">A CDN sits in front of an authenticated endpoint. What must be true?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-2" value="a"><span>The response must be <code>private</code> or <code>no-store</code>, and if it is cacheable at all you must <code>Vary: Authorization</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-2" value="b"><span><code>s-maxage=0</code> is sufficient.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-2" value="c"><span>The endpoint must be served over a different hostname.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-2" value="d"><span>Nothing; CDNs never cache responses carrying an <code>Authorization</code> header.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>“We put a CDN in front and users started seeing each other's dashboards” is a real incident class.</b> Mark authenticated responses private, or uncacheable — the safest default — and treat <code>Vary: Authorization</code> as the minimum if you deliberately cache them.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What does <code>stale-while-revalidate=60</code> buy you?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-3" value="a"><span>It extends freshness by 60 seconds.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-3" value="b"><span>It lets a cache serve the stale copy for up to 60 seconds while it refreshes in the background, so no client waits for the origin.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-3" value="c"><span>It forces revalidation every 60 seconds.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-caching-3" value="d"><span>It keeps the entry for 60 seconds after eviction.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Latency hiding, not freshness.</b> Its sibling <code>stale-if-error</code> serves stale content while the origin is failing, and <code>must-revalidate</code> is the opposite instruction: once stale, never serve without checking.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="design">
+        <header>
+          <h2>Resource design</h2>
+          <span class="count">4 topics</span>
+        </header>
+        <p class="part-intro">The protocol gives you nouns, verbs and status. Design is deciding which nouns exist, how big they are, and how a client walks between them.</p>
+
+        <article class="topic" id="resources">
+          <h3>Resources, not RPC</h3>
+          <p>URIs name things; methods say what to do to them. Verbs in the path (<code>/getUser?id=3</code>, <code>/createOrder</code>) mean the method is decorative and every cache and proxy in the chain loses its ability to help you.</p>
+          <div class="versus">
+            <div>
+              <h4>RPC-shaped</h4>
+              <ul>
+                <li><code>POST /getOrder</code></li>
+                <li><code>POST /cancelOrder</code></li>
+                <li><code>POST /listOrdersForUser</code></li>
+                <li>Nothing cacheable, nothing safely retryable</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Resource-shaped</h4>
+              <ul>
+                <li><code>GET /orders/8127</code></li>
+                <li><code>POST /orders/8127/cancellation</code></li>
+                <li><code>GET /users/42/orders</code></li>
+                <li><code>GET</code>s cache and retry for free</li>
+              </ul>
+            </div>
+          </div>
+          <p>Conventions worth stating because reviewers look for consistency: plural collection nouns (<code>/orders</code>), lowercase kebab-case for multi-word segments (<code>/purchase-orders</code>), identifiers in the path, filters in the query string, no trailing slash, no file extensions. Nest at most one level — <code>/users/42/orders</code> is fine, <code>/users/42/orders/8127/lines/3/discounts</code> is a maintenance problem; hang the deep resource off its own root instead.</p>
+          <div class="note"><b>Actions that are not CRUD.</b> Real domains have “cancel”, “publish”, “refund”. Three honest options: model the action as a resource (<code>POST /orders/8127/cancellation</code>), model it as a state transition (<code>PATCH /orders/8127</code> with <code>{"status":"cancelled"}</code>), or admit it is an RPC-style command and keep it in a clearly marked corner. The first is usually best because the action itself gets an identity, a timestamp and an audit trail.</div>
+          <p class="asked"><b>Asked as</b> — “How would you model ‘cancel order’ in REST?” Answer with the resource-as-action option first, then say why: it gives the cancellation an id you can retry against, reference in support tickets and audit — which a <code>PATCH</code> of a status field does not.</p>
+          <details class="quiz" id="quiz-resources"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What does <code>POST /getOrder</code> actually cost you?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-1" value="a"><span>It prevents the use of status codes.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-1" value="b"><span>Nothing, as long as the documentation is clear.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-1" value="c"><span>Every cache and proxy in the chain loses its ability to help: nothing is cacheable and nothing is safely retryable, because the method no longer says what the request does.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-1" value="d"><span>It breaks CORS preflight.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>URIs name things; methods say what to do to them.</b> Once the verb moves into the path the method is decorative, and the generic infrastructure between you and the client has nothing to work with.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">How would you model “cancel order” in REST?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-2" value="a"><span><code>DELETE /orders/8127</code>, since the order is no longer active.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-2" value="b"><span><code>PUT /orders/8127</code> with the full order and a new status.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-2" value="c"><span><code>POST /orders/8127/cancel</code>, since cancellation is an action.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-2" value="d"><span><code>POST /orders/8127/cancellation</code> — the cancellation becomes a resource with its own id, timestamp and audit trail; a state-transition <code>PATCH</code> is the reasonable alternative.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Model the action as a resource first, then say why.</b> It gives the cancellation an identity you can retry against, reference in a support ticket and audit. <code>DELETE</code> is wrong — the order still exists.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">How deep should nesting go?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-3" value="a"><span>At most one level — <code>/users/42/orders</code> is fine; hang anything deeper off its own root.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-3" value="b"><span>Never nest; every resource gets a flat URI.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-3" value="c"><span>Two levels, with the third expressed as a query parameter.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-resources-3" value="d"><span>As deep as the domain model, so the URI mirrors the object graph.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b><code>/users/42/orders/8127/lines/3/discounts</code> is a maintenance problem</b>, not a design. The rest of the house style matters too because reviewers look for it: plural collection nouns, lowercase kebab-case, ids in the path, filters in the query string, no trailing slash.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="collections">
+          <h3>Collections: filtering, sorting, pagination</h3>
+          <p>Every collection endpoint eventually meets a client that wants page 4000. Offset pagination is easy and degrades badly; cursor (keyset) pagination is slightly harder and stays constant-time.</p>
+          <div class="versus">
+            <div>
+              <h4>Offset / limit</h4>
+              <ul>
+                <li><code>?page=3&amp;per_page=25</code></li>
+                <li>Can jump to an arbitrary page; total count is natural</li>
+                <li><code>OFFSET 100000</code> makes the database count and discard rows</li>
+                <li><b>Drifts:</b> an insert during paging shows a row twice or skips one</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Cursor / keyset</h4>
+              <ul>
+                <li><code>?limit=25&amp;after=eyJpZCI6ODEyN30</code></li>
+                <li>Uses an index seek — same cost on page 1 and page 4000</li>
+                <li>Stable under concurrent writes</li>
+                <li>No “jump to page 12”, and total counts get expensive</li>
+              </ul>
+            </div>
+          </div>
+          <pre class="code"><code class="language-php">// Keyset pagination over a stable, unique sort key.
+// The tie-breaker on id is what makes it correct when created_at repeats.
+$sql = 'SELECT id, created_at, total
+        FROM orders
+        WHERE (created_at, id) &lt; (:cursorTime, :cursorId)
+        ORDER BY created_at DESC, id DESC
+        LIMIT :limit';
+
+$rows = $pdo-&gt;prepare($sql);
+// ... bind, fetch $limit + 1 rows; the extra row tells you whether a next page exists.
+
+$next = count($rows) &gt; $limit
+    ? base64_encode(json_encode(['t' =&gt; $rows[$limit - 1]['created_at'], 'id' =&gt; $rows[$limit - 1]['id']]))
+    : null;</code></pre>
+          <p>Return the paging state in the body (<code>{"data": [...], "next_cursor": "..."}</code>) or in <code>Link</code> headers (<code>rel="next"</code>, <code>rel="prev"</code>) — pick one and apply it everywhere. Filters belong in the query string with predictable names (<code>?status=paid&amp;created_after=2026-01-01</code>), sorting in a single <code>?sort=-created_at,id</code> parameter with <code>-</code> meaning descending. Always cap <code>limit</code> server-side; an uncapped <code>per_page</code> is a denial-of-service parameter.</p>
+          <p class="asked"><b>Asked as</b> — “Your list endpoint got slow at page 500. What now?” Keyset pagination, an index matching the sort key exactly, and dropping the exact total (estimate it, or return “has more”). Naming the <code>(created_at, id)</code> tie-breaker is what separates a memorised answer from a used-in-anger one.</p>
+          <details class="quiz" id="quiz-collections"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Your list endpoint got slow at page 500. What now?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-1" value="a"><span>Add a cache in front of the collection endpoint.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-1" value="b"><span>Switch to keyset pagination, add an index matching the sort key exactly, and drop the exact total — estimate it or return “has more”.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-1" value="c"><span>Increase <code>per_page</code> so fewer pages are needed.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-1" value="d"><span>Denormalise the table.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b><code>OFFSET 100000</code> makes the database walk and discard 100,000 rows.</b> Naming the <code>(created_at, id)</code> tie-breaker is what separates a memorised answer from a used-in-anger one — without it, rows with equal timestamps shuffle between pages.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What goes wrong with offset pagination under concurrent writes?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-2" value="a"><span>The database locks the table.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-2" value="b"><span>Nothing; the offset is recalculated per request.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-2" value="c"><span>Drift: an insert while the client is paging shows a row twice or skips one entirely.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-2" value="d"><span>The total count becomes negative.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The window moves under you.</b> Cursor pagination encodes <em>where the last page ended</em> rather than how many rows to skip, so it is stable under concurrent writes — at the cost of “jump to page 12” and cheap totals.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Why must <code>limit</code> be capped server-side?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-3" value="a"><span>Because the cursor encoding has a fixed size.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-3" value="b"><span>Because HTTP limits query strings to 2 KB.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-3" value="c"><span>Because clients cannot be trusted to send an integer.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-collections-3" value="d"><span>Because an uncapped <code>per_page</code> is a denial-of-service parameter.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>One request asking for a million rows is enough.</b> The rest of the collection house style: filters as predictable query parameters, sorting in a single <code>?sort=-created_at,id</code> with <code>-</code> for descending, and paging state either in the body or in <code>Link</code> headers — pick one and apply it everywhere.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="relations">
+          <h3>Relationships and payload shape</h3>
+          <p>The two failure modes are the chatty API (a hundred requests to render one screen) and the fat API (one endpoint returning everything anyone ever needed). The tools between them: sub-resources, expansion, and sparse fieldsets.</p>
+          <pre class="code"><code class="language-http">GET /v1/orders/8127                      → the order, with customer as a reference
+GET /v1/orders/8127?expand=customer,lines → embedded representations
+GET /v1/orders?fields=id,total,status     → sparse fieldset, smaller payload
+GET /v1/orders/8127/lines                 → the collection on its own URI</code></pre>
+          <pre class="code"><code class="language-json">{
+  "id": "ord_8127",
+  "status": "paid",
+  "total": {"amount": 1500, "currency": "HUF"},
+  "customer": {"id": "cus_42", "href": "/v1/customers/42"},
+  "created_at": "2026-09-10T08:14:22Z"
+}</code></pre>
+          <p>Conventions that save arguments later: one casing style for all keys (<code>snake_case</code> is the common REST choice, <code>camelCase</code> if your consumers are all JS), RFC 3339 UTC timestamps with a <code>Z</code>, money as integer minor units plus a currency code (never a float), enums as lowercase strings rather than integers, and <code>null</code> reserved for “known to be absent” rather than “not loaded”. Do not wrap single resources in a redundant envelope; do use one for collections, because that is where paging metadata has to live.</p>
+          <p class="asked"><b>Asked as</b> — “When would you reach for GraphQL instead?” When clients genuinely need arbitrary shapes and you can afford the cost: query complexity limits, N+1 batching, per-field authorization and much weaker HTTP caching. For a handful of known consumers, expansion and sparse fieldsets solve the same problem with none of that.</p>
+          <details class="quiz" id="quiz-relations"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What are the two failure modes a payload design has to sit between?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-1" value="a"><span>The chatty API — a hundred requests to render one screen — and the fat API, one endpoint returning everything anyone ever needed.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-1" value="b"><span>Too many endpoints and too few.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-1" value="c"><span>Deep nesting and flat nesting.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-1" value="d"><span>Over-fetching and under-fetching of database rows.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Sub-resources, expansion and sparse fieldsets are the tools in between.</b> They let one endpoint serve a list view and a detail view without either shipping a megabyte or forcing ten follow-up calls.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">How should money be represented in a JSON payload?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-2" value="a"><span>As a float, for arithmetic convenience.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-2" value="b"><span>As an integer number of minor units plus a currency code.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-2" value="c"><span>As a formatted string with a currency symbol.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-2" value="d"><span>As a decimal string, parsed by the client.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Never a float.</b> The neighbouring conventions that save arguments later: one casing style throughout, RFC 3339 UTC timestamps with a <code>Z</code>, enums as lowercase strings rather than integers, and <code>null</code> reserved for “known to be absent” rather than “not loaded”.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">When is GraphQL the right answer instead of expansion and sparse fieldsets?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-3" value="a"><span>When the schema changes frequently.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-3" value="b"><span>Whenever clients complain about payload size.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-3" value="c"><span>When clients genuinely need arbitrary shapes and you can afford query complexity limits, N+1 batching, per-field authorization and much weaker HTTP caching.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-relations-3" value="d"><span>Whenever there is more than one client.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The costs are the answer.</b> For a handful of known consumers, expansion and sparse fieldsets solve the same problem and keep every HTTP cache in the chain working.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="maturity">
+          <h3>The Richardson maturity model, and HATEOAS honestly</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Level</th><th>What it means</th><th>In practice</th></tr></thead>
+              <tbody>
+                <tr><td class="num">0</td><td>One URI, one verb — HTTP as a tunnel</td><td>SOAP-style <code>POST /api</code></td></tr>
+                <tr><td class="num">1</td><td>Resources get their own URIs</td><td>Still <code>POST</code> for everything</td></tr>
+                <tr><td class="num">2</td><td>Methods and status codes used correctly</td><td><b>Where nearly every real API lives</b></td></tr>
+                <tr><td class="num">3</td><td>Hypermedia controls in the representation</td><td>HAL, JSON:API links, <code>Link</code> headers</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Level 3 means the client discovers what it can do next from links in the response rather than from hardcoded URI templates. It is Fielding's actual definition of REST — an API without hypermedia is, strictly, not REST. It also rarely pays off between a backend and its own SPA, where the client is deployed with knowledge of the API anyway. Where it does pay: long-lived public APIs, state machines (which transitions are legal right now), and paging.</p>
+          <pre class="code"><code class="language-json">{
+  "id": "ord_8127",
+  "status": "paid",
+  "_links": {
+    "self":     {"href": "/v1/orders/8127"},
+    "refund":   {"href": "/v1/orders/8127/refunds", "method": "POST"},
+    "invoice":  {"href": "/v1/orders/8127/invoice"}
+  }
+}</code></pre>
+          <p class="asked"><b>Asked as</b> — “Is your API RESTful?” The strong answer names the level, then the trade-off: “Level 2, deliberately — we ship links for paging and state transitions where they earn their keep, but full hypermedia would add cost our two known clients would not use.” Claiming Level 3 and then failing to describe a hypermedia control is the trap.</p>
+          <details class="quiz" id="quiz-maturity"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">What does Richardson Level 3 require that Level 2 does not?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-1" value="a"><span>One URI per resource.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-1" value="b"><span>Versioning via media types.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-1" value="c"><span>Correct use of methods and status codes.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-1" value="d"><span>Hypermedia controls in the representation, so the client discovers what it can do next from links rather than hardcoded URI templates.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Level 3 is Fielding's actual definition of REST</b> — strictly, an API without hypermedia is not REST. Level 2, where nearly every real API lives, means resources plus correct methods and status codes.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Where does hypermedia genuinely pay off?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-2" value="a"><span>Long-lived public APIs, state machines where the legal transitions change, and paging.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-2" value="b"><span>Any API with more than ten endpoints.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-2" value="c"><span>Internal service-to-service calls.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-2" value="d"><span>Between a backend and its own SPA, which is deployed alongside it.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>It earns its keep where the client cannot be redeployed with new knowledge.</b> For your own SPA the client already knows the URI templates, so the links add ceremony without removing coupling.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What is the strong answer to “is your API RESTful?”</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-3" value="a"><span>“Yes, it follows REST principles.”</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-3" value="b"><span>Name the level and the trade-off: “Level 2, deliberately — links for paging and state transitions where they earn their keep, but full hypermedia would cost more than our two known clients would use.”</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-3" value="c"><span>“Level 3, we return JSON:API.”</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-maturity-3" value="d"><span>“REST is a spectrum, so the question is meaningless.”</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Claiming Level 3 and then failing to describe a hypermedia control is the trap.</b> Naming your level and defending it reads far better than an unqualified yes.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="reliability">
+        <header>
+          <h2>Reliability</h2>
+          <span class="count">4 topics</span>
+        </header>
+        <p class="part-intro">Networks retry, clients double-click, and two users edit the same row. These four topics are where senior interviews spend the most time, because they are where money gets charged twice.</p>
+
+        <article class="topic" id="idempotency">
+          <h3>Idempotency keys</h3>
+          <p>A client sends <code>POST /payments</code>, the connection drops after the charge but before the response. The client cannot know whether it happened. The fix is a client-generated key that the server remembers.</p>
+          <pre class="code"><code class="language-php">final class IdempotentPayments
+{
+    public function __construct(private PDO $db, private Payments $payments) {}
+
+    public function handle(string $key, array $payload): array
+    {
+        $fingerprint = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
+
+        // Claim the key first. The unique index is the concurrency control:
+        // two simultaneous retries race here, and exactly one wins.
+        try {
+            $stmt = $this-&gt;db-&gt;prepare(
+                'INSERT INTO idempotency_keys (key_id, fingerprint, state, created_at)
+                 VALUES (:k, :f, \'in_progress\', NOW())'
+            );
+            $stmt-&gt;execute(['k' =&gt; $key, 'f' =&gt; $fingerprint]);
+        } catch (PDOException $e) {
+            if (!$this-&gt;isUniqueViolation($e)) {
+                throw $e;
+            }
+            $row = $this-&gt;load($key);
+
+            // Same key, different body: the client has a bug. Do not silently replay.
+            if (!hash_equals($row['fingerprint'], $fingerprint)) {
+                throw new IdempotencyConflict();       // → 422, or 409
+            }
+            if ($row['state'] === 'in_progress') {
+                throw new RequestInFlight();           // → 409 + Retry-After
+            }
+            return json_decode($row['response'], true); // → replay the stored 201
+        }
+
+        $result = $this-&gt;payments-&gt;charge($payload);
+        $this-&gt;store($key, $result);
+        return $result;
+    }
+}</code></pre>
+          <p>Design notes an interviewer will fish for: the key is <b>client-generated</b> (a UUID per logical operation, not per retry), scoped per API key or per user so keys cannot collide across tenants, stored with the <b>response</b> so a replay returns the original <code>201</code> rather than re-executing, expired after 24 hours or so, and only applied to unsafe non-idempotent methods. Stripe's implementation is the reference everyone borrows from.</p>
+          <p class="asked"><b>Asked as</b> — “How do you make a payment endpoint safe to retry?” Idempotency key, unique index, stored response, fingerprint check on mismatch. If you only say “check whether a payment with the same amount exists in the last minute”, expect a follow-up about two legitimate identical charges.</p>
+          <details class="quiz" id="quiz-idempotency"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What problem does an idempotency key solve?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-1" value="a"><span>Duplicate records caused by a missing unique index.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-1" value="b"><span>Two clients submitting the same form at once.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-1" value="c"><span>A client that cannot tell whether its request succeeded — the connection dropped after the charge but before the response — and must retry safely.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-1" value="d"><span>Rate limiting per user.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>It is about the ambiguous failure, not about concurrency.</b> The server stores the key with the original response, so a replay returns the same <code>201</code> rather than charging again.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">How is the key generated and scoped?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-2" value="a"><span>It is derived from a hash of the request body.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-2" value="b"><span>It is the session id.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-2" value="c"><span>The server generates it and returns it for the client to reuse.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-2" value="d"><span>The client generates it — a UUID per logical operation, not per retry — and it is scoped per API key or tenant so keys cannot collide.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Per logical operation is the subtle half.</b> A new key on each retry defeats the mechanism entirely. Scoping stops one tenant's key from colliding with another's, and the stored entry is usually expired after about 24 hours.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">“How do you make a payment endpoint safe to retry?” What is the complete answer?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-3" value="a"><span>Idempotency key, a unique index on it, the stored response replayed on a repeat, and a fingerprint check that rejects a reused key carrying a different body.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-3" value="b"><span>Wrap the charge in a database transaction.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-3" value="c"><span>Use <code>PUT</code> instead of <code>POST</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-idempotency-3" value="d"><span>Check whether a payment with the same amount exists in the last minute.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The amount-and-time heuristic invites the obvious follow-up:</b> two legitimate identical charges. The fingerprint check matters too — a client reusing a key with a different payload is a bug, and should get a <code>422</code> rather than the old response.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="concurrency">
+          <h3>Optimistic concurrency: lost updates</h3>
+          <p>Two clients <code>GET</code> the same order, both edit, both <code>PUT</code>. Without a precondition the second silently overwrites the first — the classic lost update. HTTP has a built-in answer.</p>
+          <pre class="code"><code class="language-http">PUT /v1/orders/8127
+If-Match: "3f1c9a"
+
+→ 200 OK          the version matched, write applied, new ETag returned
+→ 412             someone else changed it since you read it
+→ 428             you sent no If-Match and this endpoint requires one</code></pre>
+          <pre class="code"><code class="language-php">// The database side of the same idea: a version column and a conditional UPDATE.
+$stmt = $pdo-&gt;prepare(
+    'UPDATE orders SET total = :total, version = version + 1
+     WHERE id = :id AND version = :expected'
+);
+$stmt-&gt;execute(['total' =&gt; $total, 'id' =&gt; $id, 'expected' =&gt; $expectedVersion]);
+
+if ($stmt-&gt;rowCount() === 0) {
+    throw new PreconditionFailed();   // → 412, tell the client to re-read and retry
+}</code></pre>
+          <div class="note"><b>Optimistic vs pessimistic.</b> Optimistic (version check, no lock held between read and write) suits HTTP, because a client may never come back. Pessimistic (<code>SELECT ... FOR UPDATE</code>) holds a database lock and only works inside one short transaction — you cannot hold it across a user's think time without building your own lock-expiry machinery.</div>
+          <p class="asked"><b>Asked as</b> — “Two users edit the same record. What happens?” Name the lost update, then give both layers: <code>If-Match</code>/<code>412</code> at the API boundary and a version column with a conditional <code>UPDATE</code> underneath, so a client that bypasses the header still cannot clobber a row.</p>
+          <details class="quiz" id="quiz-concurrency"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Two clients <code>GET</code> the same order, both edit, both <code>PUT</code>. What is the failure called, and what prevents it?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-1" value="a"><span>A race condition; prevented by a database transaction.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-1" value="b"><span>The lost update; prevented by a precondition — <code>If-Match</code> with the current <code>ETag</code>, answered with <code>412 Precondition Failed</code> when it no longer matches.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-1" value="c"><span>A deadlock; prevented by consistent lock ordering.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-1" value="d"><span>A dirty read; prevented by a higher isolation level.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Without a precondition the second write silently overwrites the first.</b> HTTP has the answer built in, and it reuses the validator you already have from conditional <code>GET</code>s.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Why is optimistic concurrency the right fit for HTTP rather than pessimistic locking?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-2" value="a"><span>Because <code>SELECT … FOR UPDATE</code> does not work with PDO.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-2" value="b"><span>Because optimistic checks are faster.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-2" value="c"><span>Because a client may never come back — you cannot hold a database lock across a user's think time without building your own lock-expiry machinery.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-2" value="d"><span>Because HTTP forbids long transactions.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Statelessness again.</b> Pessimistic locking works inside one short transaction; between two requests there is no session to hang a lock on, and an abandoned edit would block the row indefinitely.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">What is the complete two-layer answer to “two users edit the same record”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-3" value="a"><span>Serializable isolation on every transaction.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-3" value="b"><span><code>If-Match</code> and <code>412</code> at the API boundary.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-3" value="c"><span>A version column with a conditional <code>UPDATE … WHERE version = ?</code> in the database.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-concurrency-3" value="d"><span>Both: the header at the boundary, and the version column underneath, so a client bypassing the header still cannot clobber a row.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The boundary check is a courtesy; the database check is the guarantee.</b> Naming both — and why the lower layer exists — is what the question is fishing for.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="ratelimit">
+          <h3>Rate limiting</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Algorithm</th><th>Behaviour</th><th>Cost</th></tr></thead>
+              <tbody>
+                <tr><td>Fixed window</td><td>Counter per minute. Simple; allows a 2× burst across the window boundary</td><td>One counter</td></tr>
+                <tr><td>Sliding window log</td><td>Timestamps of every request. Exact</td><td>Memory grows with traffic</td></tr>
+                <tr><td>Sliding window counter</td><td>Weighted blend of current and previous window. Good approximation</td><td>Two counters</td></tr>
+                <tr><td>Token bucket</td><td>Tokens refill at a steady rate, bucket has a cap. <b>Allows controlled bursts</b></td><td>Two fields: tokens, last refill</td></tr>
+                <tr><td>Leaky bucket</td><td>Queue drains at a fixed rate. Smooths output entirely</td><td>A queue</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <pre class="code"><code class="language-php">// Token bucket in Redis. The Lua script makes read-modify-write atomic —
+// doing this in three PHP round trips is the bug interviewers look for.
+const SCRIPT = &lt;&lt;&lt;'LUA'
+local tokens_key = KEYS[1]
+local rate, capacity, now, cost = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4])
+local data = redis.call('HMGET', tokens_key, 'tokens', 'ts')
+local tokens = tonumber(data[1]) or capacity
+local ts = tonumber(data[2]) or now
+tokens = math.min(capacity, tokens + (now - ts) * rate)
+local allowed = tokens &gt;= cost
+if allowed then tokens = tokens - cost end
+redis.call('HSET', tokens_key, 'tokens', tokens, 'ts', now)
+redis.call('EXPIRE', tokens_key, math.ceil(capacity / rate) * 2)
+return { allowed and 1 or 0, tokens }
+LUA;
+
+[$allowed, $remaining] = $redis-&gt;eval(SCRIPT, ["rl:{$apiKey}"], [10, 100, microtime(true), 1]);</code></pre>
+          <pre class="code"><code class="language-http">HTTP/1.1 429 Too Many Requests
+Retry-After: 12
+RateLimit: limit=100, remaining=0, reset=12
+RateLimit-Policy: 100;w=60</code></pre>
+          <p>Limit per credential (API key, user, tenant) rather than per IP where you can — NAT puts a whole office behind one address. Always tell the client what happened: <code>Retry-After</code> at minimum, the <code>RateLimit</code> header family if you want well-behaved clients. And expect the follow-up about the client side: exponential backoff <em>with jitter</em>, because synchronised retries are how a limited API becomes a down API.</p>
+          <p class="asked"><b>Asked as</b> — “How would you rate limit an API?” Token bucket in Redis, atomic via Lua, keyed per API key, <code>429</code> with <code>Retry-After</code>. Mention the fixed-window boundary burst — knowing why the naive counter is wrong is the actual signal.</p>
+          <details class="quiz" id="quiz-ratelimit"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Why is a fixed-window counter the wrong default?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-1" value="a"><span>It allows a 2× burst across the window boundary — a full window's worth of requests at the end of one minute and another at the start of the next.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-1" value="b"><span>It cannot be made atomic in Redis.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-1" value="c"><span>It cannot return <code>Retry-After</code>.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-1" value="d"><span>It needs too much memory.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Knowing <em>why</em> the naive counter is wrong is the actual signal.</b> The usual production answer is a token bucket in Redis, atomic via a Lua script, keyed per API key, answering <code>429</code> with <code>Retry-After</code>.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Why limit per credential rather than per IP where you can?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-2" value="a"><span>IP lookups are slow.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-2" value="b"><span>NAT puts a whole office behind one address, so an IP limit punishes unrelated users together.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-2" value="c"><span>IPv6 addresses are too numerous to key on.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-2" value="d"><span>Per-IP limits cannot be reset.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The credential is the actor; the IP is an accident of the network.</b> Per-IP still has its place as a coarse outer layer for unauthenticated traffic, but the real limit belongs on the API key, user or tenant.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What must the client side do to make rate limiting work?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-3" value="a"><span>Cache the <code>429</code> response.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-3" value="b"><span>Retry immediately until it succeeds.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-3" value="c"><span>Exponential backoff with jitter — synchronised retries are how a limited API becomes a down API.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-ratelimit-3" value="d"><span>Open more connections to spread the load.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Jitter is the word they are listening for.</b> Without it every blocked client retries at the same instant, and the thundering herd reproduces the overload the limit was meant to prevent. Tell clients what happened: <code>Retry-After</code> at minimum, the <code>RateLimit</code> header family if you want well-behaved clients.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="errors">
+          <h3>One error format: RFC 9457 problem details</h3>
+          <p>Every API invents an error envelope. There is a standard one — <code>application/problem+json</code>, RFC 9457 (which obsoleted RFC 7807) — and using it costs nothing.</p>
+          <pre class="code"><code class="language-http">HTTP/1.1 422 Unprocessable Content
+Content-Type: application/problem+json</code></pre>
+          <pre class="code"><code class="language-json">{
+  "type": "https://api.example.com/problems/validation-error",
+  "title": "Your request parameters didn't validate.",
+  "status": 422,
+  "detail": "The order must contain at least one line item.",
+  "instance": "/v1/orders",
+  "trace_id": "01JB8Z4K3Q7X",
+  "errors": [
+    {"pointer": "/lines", "code": "min_items", "message": "At least one line is required."},
+    {"pointer": "/currency", "code": "unsupported", "message": "Currency XPT is not supported."}
+  ]
+}</code></pre>
+          <p><code>type</code> is a stable URI that identifies the <em>class</em> of problem — that is the field clients should branch on, never the human-readable <code>title</code>. Extension members (<code>errors</code>, <code>trace_id</code>) are explicitly allowed. Include a correlation id so a support ticket maps to a log line; exclude stack traces, SQL, and internal hostnames, always, including in staging that someone will inevitably point at production data.</p>
+          <p class="asked"><b>Asked as</b> — “How do you return validation errors?” <code>422</code>, problem+json, machine-readable per-field codes with JSON Pointers, one stable <code>type</code> URI, and a trace id. The senior addition: error codes are part of your public contract and are subject to the same compatibility rules as fields.</p>
+          <details class="quiz" id="quiz-errors"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">What is <code>application/problem+json</code>?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-1" value="a"><span>A media type for validation errors only.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-1" value="b"><span>A JSON Schema for HTTP errors.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-1" value="c"><span>A Symfony convention for error responses.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-1" value="d"><span>The RFC 9457 standard error format — which obsoleted RFC 7807 — with <code>type</code>, <code>title</code>, <code>status</code>, <code>detail</code> and <code>instance</code>.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Every API invents an error envelope; there is a standard one, and it costs nothing to use.</b> Extension members such as <code>errors</code> or <code>trace_id</code> are explicitly allowed.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Which field should a client branch on?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-2" value="a"><span><code>type</code> — a stable URI identifying the class of problem.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-2" value="b"><span><code>status</code>, since it is machine-readable.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-2" value="c"><span><code>detail</code>, which carries the specifics.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-2" value="d"><span><code>title</code>, because it describes the problem.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b><code>title</code> is human-readable and may be reworded or translated at any time.</b> The <code>type</code> URI is the contract, which is why error codes are subject to the same compatibility rules as fields.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What must never appear in an error response?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-3" value="a"><span>A correlation id.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-3" value="b"><span>Stack traces, SQL, and internal hostnames — always, including in the staging environment someone will eventually point at production data.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-3" value="c"><span>Per-field validation codes.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-errors-3" value="d"><span>The <code>instance</code> URI.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Include the correlation id so a support ticket maps to a log line; exclude everything that describes your internals.</b> For validation specifically: <code>422</code>, problem+json, machine-readable per-field codes with JSON Pointers, one stable <code>type</code> URI, and a trace id.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="evolution">
+        <header>
+          <h2>Evolution</h2>
+          <span class="count">3 topics</span>
+        </header>
+
+        <article class="topic" id="versioning">
+          <h3>Versioning and deprecation</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Strategy</th><th>Looks like</th><th>Trade-off</th></tr></thead>
+              <tbody>
+                <tr><td>URI path</td><td><code>/v1/orders</code></td><td>Obvious, cacheable, greppable in logs. Purists object that the resource did not change identity</td></tr>
+                <tr><td>Media type</td><td><code>Accept: application/vnd.ex+json;version=2</code></td><td>Correct per HTTP semantics; harder to test in a browser or curl one-liner</td></tr>
+                <tr><td>Custom header</td><td><code>X-API-Version: 2026-09-10</code></td><td>Clean URIs; invisible in logs and caches unless you <code>Vary</code></td></tr>
+                <tr><td>Query parameter</td><td><code>?version=2</code></td><td>Easiest to abuse, easy to drop accidentally</td></tr>
+                <tr><td>Date-based</td><td><code>Stripe-Version: 2026-09-10</code></td><td>Pinned per client, upgraded deliberately; needs a request/response transformation layer</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Whatever you pick, the important half is the retirement process: announce, set <code>Deprecation</code> and <code>Sunset</code> headers, measure who is still calling, then return <code>410 Gone</code> with a problem document pointing at the migration guide.</p>
+          <pre class="code"><code class="language-http">Deprecation: @1789004400
+Sunset: Wed, 31 Mar 2027 23:59:59 GMT
+Link: &lt;https://api.example.com/docs/v2-migration&gt;; rel="deprecation"; type="text/html"</code></pre>
+          <p class="asked"><b>Asked as</b> — “How do you version an API?” Name your default (<code>/v1</code> in the path, because operations and debugging are easier), then show you know it is a trade-off, then pivot to the real answer: version as rarely as possible by making additive changes, and treat v2 as a cost you pay only for a breaking redesign.</p>
+          <details class="quiz" id="quiz-versioning"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">What is the main objection to <code>/v1/orders</code>, and why do most teams use it anyway?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-1" value="a"><span>It cannot be deprecated; teams use it because clients expect it.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-1" value="b"><span>It is not cacheable; teams use it because it is simple.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-1" value="c"><span>Purists object that the resource did not change identity, but it is obvious, cacheable and greppable in logs — which makes operations and debugging easier.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-1" value="d"><span>It breaks CORS; teams use it because browsers require it.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Name your default, then show you know it is a trade-off.</b> Media-type versioning is correct by HTTP semantics; a custom header keeps URIs clean but is invisible in logs and caches unless you <code>Vary</code>.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">Which headers announce a retirement?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-2" value="a"><span><code>Warning</code> and <code>Link</code></span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-2" value="b"><span><code>X-API-Deprecated</code> and <code>X-API-Sunset</code></span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-2" value="c"><span><code>Expires</code> and <code>Retry-After</code></span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-2" value="d"><span><code>Deprecation</code> and <code>Sunset</code>, followed eventually by <code>410 Gone</code> with a problem document pointing at the migration guide.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The retirement process is the important half of versioning.</b> Announce, set the headers, measure who is still calling, then turn it off — with a response that says where to go next.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What is the real answer to “how do you version an API”?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-3" value="a"><span>Version as rarely as possible by making additive changes, and treat v2 as a cost you only pay for a breaking redesign.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-3" value="b"><span>Version every endpoint independently so clients migrate piecemeal.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-3" value="c"><span>Never version; use feature flags instead.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-versioning-3" value="d"><span>Pick date-based versioning, as Stripe does.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Every version you ship is a version you maintain.</b> The strategy question is real but secondary — the discipline of additive change is what keeps the number of live versions at one.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="compat">
+          <h3>What counts as a breaking change</h3>
+          <div class="versus">
+            <div>
+              <h4>Safe (additive)</h4>
+              <ul>
+                <li>Adding a new optional request field</li>
+                <li>Adding a new field to a response</li>
+                <li>Adding a new endpoint or a new optional query parameter</li>
+                <li>Adding a new value to an enum <em>your clients only read and display</em></li>
+              </ul>
+            </div>
+            <div>
+              <h4>Breaking</h4>
+              <ul>
+                <li>Removing or renaming a field; changing its type</li>
+                <li>Making an optional request field required, or tightening validation</li>
+                <li>Changing a status code, an error <code>type</code>, or default sort order</li>
+                <li>Adding an enum value clients <em>switch</em> on — and changing pagination defaults</li>
+              </ul>
+            </div>
+          </div>
+          <p>The counterpart on the client side is Postel-flavoured but sharper: be a <b>tolerant reader</b>. Ignore unknown fields instead of failing, do not depend on key order, do not assume the set of enum values is closed, and treat any unexpected 5xx as retryable rather than fatal. In PHP that means mapping JSON into DTOs field by field rather than asserting the whole shape, and having a default branch on every <code>match</code> over an external enum.</p>
+          <div class="note"><b>Contract testing.</b> The credible way to know you have not broken anyone: an OpenAPI document in version control, a diff tool in CI that fails the build on a breaking change, and consumer-driven contract tests for internal consumers. “We would notice in code review” is not an answer at senior level.</div>
+          <p class="asked"><b>Asked as</b> — “Is adding a field to a response a breaking change?” Usually no — unless a client validates against a closed schema, which is exactly why you publish a schema that allows additional properties and say so in the docs.</p>
+          <details class="quiz" id="quiz-compat"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">Is adding a field to a response a breaking change?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-1" value="a"><span>Always, because clients validate the shape.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-1" value="b"><span>Usually no — unless a client validates against a closed schema, which is why you publish a schema allowing additional properties and say so in the docs.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-1" value="c"><span>Only if the field is required.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-1" value="d"><span>Only for XML APIs.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>The answer is about the client's tolerance, so make that tolerance explicit.</b> The counterpart is to be a tolerant reader yourself: ignore unknown fields, do not depend on key order, and keep a default branch on every <code>match</code> over an external enum.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Which of these is a breaking change?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-2" value="a"><span>Adding a new optional query parameter.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-2" value="b"><span>Adding a new endpoint.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-2" value="c"><span>Tightening validation so a previously accepted request is now rejected.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-2" value="d"><span>Adding a field to a response.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Anything that turns a working request into a failing one breaks clients</b>, even though nothing in the schema was removed. The same category: changing a status code, an error <code>type</code>, default sort order, or pagination defaults.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt">How do you actually know you have not broken anyone?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-3" value="a"><span>Integration tests against staging.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-3" value="b"><span>Monitoring error rates after deploy.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-3" value="c"><span>Careful code review.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-compat-3" value="d"><span>An OpenAPI document in version control, a diff tool in CI that fails the build on a breaking change, and consumer-driven contract tests for internal consumers.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>“We would notice in code review” is not an answer at senior level.</b> The schema has to be a checked artefact, not documentation — otherwise the guarantee depends on whoever happened to read the diff.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+
+        <article class="topic" id="psr-http">
+          <h3>The PHP side: PSR-7, 15, 17, 18</h3>
+          <p>These four are what let the concepts above be framework-agnostic: <b>PSR-7</b> immutable request/response objects, <b>PSR-17</b> factories for creating them, <b>PSR-15</b> middleware and request handlers, <b>PSR-18</b> the client interface for outbound calls.</p>
+          <pre class="code"><code class="language-php">final class RateLimitMiddleware implements MiddlewareInterface   // PSR-15
+{
+    public function __construct(
+        private RateLimiter $limiter,
+        private ResponseFactoryInterface $responses,              // PSR-17
+    ) {}
+
+    public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
+    {
+        $key = $request-&gt;getAttribute('api_key');
+        $verdict = $this-&gt;limiter-&gt;consume($key);
+
+        if (!$verdict-&gt;allowed) {
+            return $this-&gt;responses-&gt;createResponse(429)
+                -&gt;withHeader('Retry-After', (string) $verdict-&gt;retryAfter)
+                -&gt;withHeader('RateLimit', "limit={$verdict-&gt;limit}, remaining=0, reset={$verdict-&gt;retryAfter}");
+        }
+
+        // PSR-7 messages are immutable: every wither returns a new instance.
+        return $handler-&gt;handle($request)
+            -&gt;withHeader('RateLimit', "limit={$verdict-&gt;limit}, remaining={$verdict-&gt;remaining}");
+    }
+}</code></pre>
+          <p>The immutability is the detail people trip on: <code>$response-&gt;withHeader(...)</code> returns a <em>new</em> response and does nothing if you discard the return value. Middleware composes as an onion — each layer may short-circuit before <code>$handler-&gt;handle()</code> (auth, rate limit, caching) or decorate on the way out (headers, timing, correlation id).</p>
+          <p class="asked"><b>Asked as</b> — “Why does PSR-7 use immutable messages?” So a message cannot be mutated under a middleware that already inspected it, which makes the pipeline predictable and thread-safe in long-running servers (RoadRunner, Swoole, FrankenPHP). The main PHP guide's standards section covers the rest of the PSR stack.</p>
+          <details class="quiz" id="quiz-psr-http"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">Why does PSR-7 use immutable messages?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-1" value="a"><span>So a message cannot be mutated under a middleware that already inspected it, which keeps the pipeline predictable and safe in long-running servers.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-1" value="b"><span>Because PHP objects are passed by reference.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-1" value="c"><span>To allow them to be cached.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-1" value="d"><span>To make them serialisable.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Predictability in the onion.</b> In RoadRunner, Swoole or FrankenPHP the same worker handles many requests, and a shared mutable request object is exactly the bug immutability removes.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What does a PSR-15 middleware do on the way in and on the way out?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-2" value="a"><span>Only one or the other; a middleware is either a filter or a decorator.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-2" value="b"><span>It may short-circuit before <code>$handler-&gt;handle()</code> — auth, rate limit, caching — or decorate the response on the way out, adding headers, timing or a correlation id.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-2" value="c"><span>It transforms the request only; responses are handled by the request handler.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-2" value="d"><span>It runs after the controller, never before.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>That is the onion.</b> Two tiny interfaces — <code>MiddlewareInterface</code> and <code>RequestHandlerInterface</code> — and the whole composition model falls out of them.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="c">
+                  <p class="quiz-prompt">Why does PSR-17 exist alongside PSR-7?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-3" value="a"><span>To provide immutability helpers.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-3" value="b"><span>To add file upload support.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-3" value="c"><span>Because PSR-7's interfaces declare no constructors, so without factories any library building a response must name a concrete implementation.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-psr-http-3" value="d"><span>To define the stream abstraction.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>You cannot <code>new</code> an interface.</b> Injecting <code>ResponseFactoryInterface</code> keeps the choice of Guzzle or Nyholm with the application, which is the whole point of a framework-agnostic package.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <section class="part" id="closing">
+        <header>
+          <h2>Closing</h2>
+          <span class="count">1 topic</span>
+        </header>
+
+        <article class="topic" id="rapid">
+          <h3>The one-liners worth having ready</h3>
+          <dl class="rapid">
+            <div><dt><code>PUT</code> vs <code>POST</code> for create</dt><dd><code>POST</code> when the server assigns the id, <code>PUT</code> when the client does and the URI is known up front.</dd></div>
+            <div><dt>Body on <code>GET</code></dt><dd>Not forbidden outright any more, but proxies, caches and clients drop it. Never design one.</dd></div>
+            <div><dt>Why <code>204</code> has no body</dt><dd>The spec says so — anything you write there may be discarded silently by intermediaries.</dd></div>
+            <div><dt>CORS preflight</dt><dd>An <code>OPTIONS</code> request the browser sends before a non-simple cross-origin call. CORS is a browser policy, not server security.</dd></div>
+            <div><dt><code>Authorization</code> and caching</dt><dd>Responses to authenticated requests are not shared-cacheable unless you explicitly opt in. Set <code>private</code> or <code>no-store</code>.</dd></div>
+            <div><dt>HTTP/2 does not change semantics</dt><dd>Same methods, headers and status codes; different framing. Domain sharding and sprite sheets became anti-patterns.</dd></div>
+            <div><dt>Timeouts</dt><dd>Every outbound call needs a connect timeout and a total timeout. A missing timeout is how one slow upstream exhausts your FPM pool.</dd></div>
+            <div><dt>Retry only what is safe</dt><dd>Idempotent methods, or anything carrying an idempotency key. Always with jitter.</dd></div>
+            <div><dt>Circuit breaker</dt><dd>After N consecutive failures, stop calling and fail fast for a cooldown. Protects you from an upstream and the upstream from you.</dd></div>
+            <div><dt>Webhooks</dt><dd>Sign the payload (HMAC + timestamp), expect duplicates, respond <code>2xx</code> fast and process asynchronously.</dd></div>
+            <div><dt><code>Location</code> on <code>201</code></dt><dd>Send it. Clients and test suites rely on it, and it is the cheapest form of hypermedia.</dd></div>
+            <div><dt>Bulk operations</dt><dd><code>207 Multi-Status</code> exists, but a per-item result array under <code>200</code> is easier for clients. Decide whether the batch is atomic and document it.</dd></div>
+            <div><dt>Long-running work</dt><dd><code>202 Accepted</code> plus a job resource the client polls, or a webhook. Do not hold the connection open.</dd></div>
+            <div><dt>Trailing slashes</dt><dd>Pick one form and <code>301</code> the other. Two URIs for one resource means two cache entries.</dd></div>
+          </dl>
+          <details class="quiz" id="quiz-rapid"
+            data-score="Answered {answered} of {total} · {correct} correct"
+            data-score-empty="Not started.">
+            <summary>Check yourself — 3 questions on this topic</summary>
+            <div class="quiz-body">
+              <p class="quiz-intro">One right answer each. Your choices are kept in this browser, so the page remembers them next time.</p>
+              <ol class="quiz-list">
+
+                <li class="quiz-q" data-answer="d">
+                  <p class="quiz-prompt"><code>PUT</code> or <code>POST</code> for creating a resource?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="a"><span><code>PUT</code>, because it is idempotent.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="b"><span>Either; they are interchangeable for creation.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="c"><span>Always <code>POST</code>; <code>PUT</code> is for updates.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-1" value="d"><span><code>POST</code> when the server assigns the id, <code>PUT</code> when the client does and the URI is known up front.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Who chooses the URI decides the method.</b> Related one-liner: a <code>201</code> should always carry <code>Location</code> — clients and test suites rely on it, and it is the cheapest form of hypermedia you will ever ship.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="a">
+                  <p class="quiz-prompt">What is a CORS preflight, and what does CORS protect?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="a"><span>An <code>OPTIONS</code> request the browser sends before a non-simple cross-origin call; CORS is a browser policy, not server-side security.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="b"><span>A <code>HEAD</code> request checking whether the endpoint exists; it protects the server from unauthorised origins.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="c"><span>A handshake that authenticates the origin before the real request.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-2" value="d"><span>A cache warm-up performed by the CDN.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>CORS relaxes the same-origin policy in the browser; it stops nothing coming from curl.</b> Treating it as an access control is a common and consequential misunderstanding.</p>
+                </li>
+
+                <li class="quiz-q" data-answer="b">
+                  <p class="quiz-prompt">What does every outbound HTTP call need?</p>
+                  <ul class="quiz-options">
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="a"><span>A retry policy.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="b"><span>A connect timeout and a total timeout — a missing timeout is how one slow upstream exhausts your FPM pool.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="c"><span>A circuit breaker.</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-rapid-3" value="d"><span>An idempotency key.</span></label></li>
+                  </ul>
+                  <p class="quiz-explain" hidden><b>Timeouts first; the rest builds on them.</b> Then retry only what is safe — idempotent methods, or anything carrying an idempotency key — always with jitter, and add a circuit breaker so N consecutive failures stop the calls for a cooldown.</p>
+                </li>
+
+              </ol>
+              <div class="quiz-foot">
+                <p class="quiz-score" role="status">Not started.</p>
+                <button type="button" class="quiz-reset">Clear my answers</button>
+              </div>
+            </div>
+          </details>
+        </article>
+      </section>
+
+      <footer class="end">
+        <p>Status codes and header semantics follow RFC 9110 (HTTP Semantics); problem details follow RFC 9457, which obsoleted RFC 7807. Companion documents: the PHP OOP &amp; PSR guide, and the Authentication &amp; Authorization guide for everything behind <code>Authorization:</code>.</p>
+      </footer>
+
+    </main>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup-templating.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-php.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-http.min.js"></script>
+<script src="../assets/guide.js"></script>
+</body>
+</html>
