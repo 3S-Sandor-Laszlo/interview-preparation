@@ -122,7 +122,7 @@
         <article class="topic" id="classes">
           <h3>Classes, objects, constructor promotion</h3>
           <p>A class is a blueprint; an object is an instance with its own property state. PHP 8 promotes constructor parameters straight to properties — declaration, type, visibility and assignment in one place.</p>
-          <pre class="code"><code class="language-php">final class Money
+          <pre class="code"><code class="language-php">class Money
 {
     public function __construct(
         public readonly int $amount,        // minor units, e.g. fillér
@@ -139,7 +139,13 @@
 }
 
 $a = new Money(1_500);
-$b = $a->add(new Money(500));   // Money(2000); $a is untouched</code></pre>
+$b = $a->add(new Money(500));   // Money(2000); $a is untouched
+
+class Discount extends Money {}
+
+$d = new Discount(1_000);
+$e = $d->add(new Money(500));   // Discount(1500) — new static() instantiates the class actually
+                                // called on; with new self() this would come back as Money</code></pre>
           <p class="asked"><b>Asked as</b> — “What does <code>new static()</code> do that <code>new self()</code> doesn’t?” <code>self</code> resolves to the class where the code is written; <code>static</code> resolves to the called class at runtime (late static binding).</p>
 
           <details class="quiz" id="quiz-classes"
