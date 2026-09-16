@@ -656,6 +656,47 @@ final class User extends Model
 User::create(['name' => 'Laslow']);  // User instance, thanks to `new static`
 User::table();                       // 'models' — self:: ignored the override</code></pre>
           <p>Swap <code>self::guess()</code> for <code>static::guess()</code> and the second call returns <code>'users'</code>. That one-line difference is the whole question.</p>
+
+          <h4 style="margin:1.3rem 0 .4rem;font-size:.95rem">Named constructors</h4>
+          <p>PHP has no constructor overloading — one class, one <code>__construct</code>. The idiom that replaces it is the <b>named constructor</b>: hide the real constructor behind <code>private</code> or <code>protected</code>, and expose static factories whose names say what they build and which validate their own input. Late static binding is what keeps them inheritable.</p>
+          <pre class="code"><code class="language-php">class Duration
+{
+    protected function __construct(public readonly int $seconds)
+    {
+        if ($seconds &lt; 0) {
+            throw new InvalidArgumentException('A duration cannot be negative.');
+        }
+    }
+
+    public static function fromSeconds(int $seconds): static
+    {
+        return new static($seconds);                 // LSB: the called class, not Duration
+    }
+
+    public static function fromMinutes(int $minutes): static
+    {
+        return static::fromSeconds($minutes * 60);   // static:: so overrides win
+    }
+
+    public static function zero(): static
+    {
+        return static::fromSeconds(0);
+    }
+}
+
+final class Timeout extends Duration
+{
+    public static function fromSeconds(int $seconds): static
+    {
+        return new static(min($seconds, 30));        // clamp: never wait longer
+    }
+}
+
+Duration::fromMinutes(2);   // Duration(120)
+Timeout::fromMinutes(2);    // Timeout(30) — static:: reached the override
+Timeout::zero();            // Timeout(0)  — inherited, still the right class</code></pre>
+          <p>Write <code>new self($seconds)</code> or <code>self::fromSeconds(...)</code> instead and both subclass calls collapse back to <code>Duration</code>: the factory silently returns the wrong type and the clamp never runs. The <code>static</code> return type carries the same promise into the type system, so <code>Timeout::fromMinutes()</code> is typed as <code>Timeout</code> without a narrowing check at the call site.</p>
+          <p class="asked"><b>Asked as</b> — “How do you do constructor overloading in PHP?” You don’t. You give the constructor restricted visibility and add named static factories — <code>fromString()</code>, <code>fromArray()</code>, <code>zero()</code> — which is also where validation and normalisation belong.</p>
           <div class="note"><b>Statics are global state.</b> They bypass DI, are hard to substitute in tests, and make dependencies invisible in the signature. Acceptable for pure functions and named constructors; a smell for anything touching I/O.</div>
           <details class="quiz" id="quiz-static"
             data-score="Answered {answered} of {total} · {correct} correct"

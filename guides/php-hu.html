@@ -656,6 +656,47 @@ final class User extends Model
 User::create(['name' => 'Laslow']);  // User példány a `new static` miatt
 User::table();                       // 'models' — a self:: figyelmen kívül hagyta a felüldefiniálást</code></pre>
           <p>Cseréld a <code>self::guess()</code>-t <code>static::guess()</code>-re, és a második hívás már <code>'users'</code>-t ad vissza. Ez az egysoros különbség maga a kérdés.</p>
+
+          <h4 style="margin:1.3rem 0 .4rem;font-size:.95rem">Névvel ellátott konstruktorok</h4>
+          <p>A PHP-ban nincs konstruktor-túlterhelés — egy osztály, egy <code>__construct</code>. Ezt váltja ki a <b>névvel ellátott konstruktor</b> (named constructor): a valódi konstruktort <code>private</code> vagy <code>protected</code> láthatóság mögé rejted, és beszédes nevű statikus gyártómetódusokat adsz mellé, amelyek maguk validálják a bemenetüket. Öröklődni pedig a késői statikus kötéstől tudnak.</p>
+          <pre class="code"><code class="language-php">class Duration
+{
+    protected function __construct(public readonly int $seconds)
+    {
+        if ($seconds &lt; 0) {
+            throw new InvalidArgumentException('Az időtartam nem lehet negatív.');
+        }
+    }
+
+    public static function fromSeconds(int $seconds): static
+    {
+        return new static($seconds);                 // LSB: a hívott osztály, nem a Duration
+    }
+
+    public static function fromMinutes(int $minutes): static
+    {
+        return static::fromSeconds($minutes * 60);   // static::, hogy a felüldefiniálás érvényesüljön
+    }
+
+    public static function zero(): static
+    {
+        return static::fromSeconds(0);
+    }
+}
+
+final class Timeout extends Duration
+{
+    public static function fromSeconds(int $seconds): static
+    {
+        return new static(min($seconds, 30));        // korlátozás: soha nem várunk tovább
+    }
+}
+
+Duration::fromMinutes(2);   // Duration(120)
+Timeout::fromMinutes(2);    // Timeout(30) — a static:: elérte a felüldefiniálást
+Timeout::zero();            // Timeout(0)  — örökölt, mégis a helyes osztály</code></pre>
+          <p>Ha <code>new self($seconds)</code>-t vagy <code>self::fromSeconds(...)</code>-t írsz helyette, mindkét leszármazott-hívás visszaesik <code>Duration</code>-re: a gyártómetódus csendben rossz típust ad vissza, a korlátozás pedig sosem fut le. A <code>static</code> visszatérési típus ugyanezt az ígéretet viszi be a típusrendszerbe, így a <code>Timeout::fromMinutes()</code> típusa <code>Timeout</code> lesz, szűkítő ellenőrzés nélkül.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan csinálsz konstruktor-túlterhelést PHP-ban?” Sehogy. A konstruktort korlátozott láthatóságúvá teszed, és névvel ellátott statikus gyártómetódusokat adsz hozzá — <code>fromString()</code>, <code>fromArray()</code>, <code>zero()</code> —, és egyúttal ide kerül a validáció és a normalizálás is.</p>
           <div class="note"><b>A statikus tagok globális állapotot jelentenek.</b> Megkerülik a DI-t, tesztben nehezen helyettesíthetők, és láthatatlanná teszik a függőségeket a szignatúrában. Tiszta függvényekhez és névvel ellátott konstruktorokhoz elfogadható; bármihez, ami I/O-t érint, code smell.</div>
           <details class="quiz" id="quiz-static"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
