@@ -791,7 +791,18 @@ Timeout::zero();            // Timeout(0)  — inherited, still the right class<
     }
 
     public function __toString(): string { return json_encode($this->items); }
-}</code></pre>
+}
+
+$config = new Config(['dsn' => 'pgsql:host=localhost', 'debug' => true]);
+
+$config->dsn;              // __get      'pgsql:host=localhost'
+isset($config->debug);     // __isset    true
+isset($config->missing);   // __isset    false — __get is never consulted
+$config->getDsn();         // __call     falls through to __get('dsn')
+echo $config;              // __toString {"dsn":"pgsql:host=localhost","debug":true}
+
+$config->missing;          // __get      throws OutOfBoundsException('missing')
+$config->reload();         // __call     throws BadMethodCallException('reload')</code></pre>
           <p class="asked"><b>Asked as</b> — “Why does <code>isset()</code> return false on a magic property?” Because <code>__get</code> is not consulted by <code>isset()</code>; you must implement <code>__isset</code> too.</p>
           <details class="quiz" id="quiz-magic"
             data-score="Answered {answered} of {total} · {correct} correct"
@@ -859,7 +870,42 @@ Timeout::zero();            // Timeout(0)  — inherited, still the right class<
 }
 
 $copy = clone $invoice;</code></pre>
-          <p>PHP 8.3 lets <code>__clone()</code> reinitialise <code>readonly</code> properties, which finally makes <code>with*()</code> style “modify a copy” methods work on readonly value objects.</p>
+          <p>PHP 8.3 lets <code>__clone()</code> reinitialise <code>readonly</code> properties, so a readonly property holding a mutable object can finally be deep-copied — before 8.3 that assignment was a fatal error. The permission is scoped to <code>__clone()</code> itself: a <code>with*()</code> method still cannot assign to <code>$copy-&gt;prop</code> after cloning, and trying is <code>Error: Cannot modify readonly property</code>.</p>
+
+          <h4 style="margin:1.3rem 0 .4rem;font-size:.95rem">Where you actually need it: withers</h4>
+          <p>The everyday reason to reach for <code>clone</code> is “the same object, with one thing changed” on a type you refuse to mutate. Rebuilding with <code>new self(...)</code> means re-passing every property — so each new property means editing every wither, and any state the constructor does not take is lost. Cloning carries the whole object across and you adjust the one field:</p>
+          <pre class="code"><code class="language-php">final class Request
+{
+    private array $headers = [];
+    private array $query   = [];
+
+    public function __construct(
+        private string $method,
+        private string $uri,
+    ) {}
+
+    public function withHeader(string $name, string $value): self
+    {
+        $copy = clone $this;                         // carries method, uri, query, everything
+        $copy-&gt;headers[strtolower($name)] = $value;  // private, but $copy is the same class
+        return $copy;
+    }
+
+    public function withQuery(string $key, string $value): self
+    {
+        $copy = clone $this;
+        $copy-&gt;query[$key] = $value;
+        return $copy;
+    }
+}
+
+$base = (new Request('GET', '/reports'))-&gt;withHeader('Accept', 'application/json');
+$csv  = $base-&gt;withHeader('Accept', 'text/csv')-&gt;withQuery('period', '2026-Q1');
+
+// $base is untouched: Accept is still application/json and its query is still empty
+$base === $csv;   // false — a new identity carrying the old state plus the change</code></pre>
+          <p>Two things make this work. <code>clone</code> gives a new identity, so whoever handed you <code>$base</code> is unaffected; and because <code>$copy</code> is an instance of the same class, its <code>private</code> properties are still writable from inside the method. This is exactly how PSR-7 <code>withHeader()</code>/<code>withUri()</code> are built, and why passing a request object around is safe. <code>DateTimeImmutable::modify()</code> is the same idea in the core library.</p>
+          <p class="asked"><b>Asked as</b> — “Why does PSR-7 use <code>withHeader()</code> rather than <code>setHeader()</code>?” Because a shared request must not change under a middleware that did not expect it; each <code>with*()</code> hands back a clone and leaves the caller’s copy alone.</p>
           <details class="quiz" id="quiz-clone"
             data-score="Answered {answered} of {total} · {correct} correct"
             data-score-empty="Not started.">

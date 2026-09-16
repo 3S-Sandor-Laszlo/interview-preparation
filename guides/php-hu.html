@@ -791,7 +791,18 @@ Timeout::zero();            // Timeout(0)  — örökölt, mégis a helyes oszt�
     }
 
     public function __toString(): string { return json_encode($this->items); }
-}</code></pre>
+}
+
+$config = new Config(['dsn' => 'pgsql:host=localhost', 'debug' => true]);
+
+$config->dsn;              // __get      'pgsql:host=localhost'
+isset($config->debug);     // __isset    true
+isset($config->missing);   // __isset    false — a __get soha nem fut le
+$config->getDsn();         // __call     továbbadja a __get('dsn')-nek
+echo $config;              // __toString {"dsn":"pgsql:host=localhost","debug":true}
+
+$config->missing;          // __get      OutOfBoundsException('missing')-ot dob
+$config->reload();         // __call     BadMethodCallException('reload')-ot dob</code></pre>
           <p class="asked"><b>Így kérdezik</b> — „Miért ad hamisat az <code>isset()</code> egy mágikus tulajdonságra?” Mert az <code>isset()</code> nem hívja meg a <code>__get</code>-et; a <code>__isset</code>-et is meg kell valósítani.</p>
           <details class="quiz" id="quiz-magic"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
@@ -859,7 +870,42 @@ Timeout::zero();            // Timeout(0)  — örökölt, mégis a helyes oszt�
 }
 
 $copy = clone $invoice;</code></pre>
-          <p>A PHP 8.3 óta a <code>__clone()</code> újra tudja inicializálni a <code>readonly</code> tulajdonságokat, ami végre működővé teszi a „módosítsd a másolatot” stílusú <code>with*()</code> metódusokat readonly értékobjektumokon.</p>
+          <p>A PHP 8.3 óta a <code>__clone()</code> újra tudja inicializálni a <code>readonly</code> tulajdonságokat, így egy módosítható objektumot tartalmazó readonly tulajdonság végre mélymásolható — 8.3 előtt ez az értékadás végzetes hiba volt. Az engedély viszont magára a <code>__clone()</code>-ra korlátozódik: egy <code>with*()</code> metódus a klónozás után továbbra sem írhat a <code>$copy-&gt;prop</code>-ba, a próbálkozás <code>Error: Cannot modify readonly property</code>.</p>
+
+          <h4 style="margin:1.3rem 0 .4rem;font-size:.95rem">Ahol tényleg kell: a wither-ek</h4>
+          <p>A <code>clone</code> hétköznapi haszna az „ugyanaz az objektum, egyetlen dolog megváltoztatva” olyan típuson, amit nem akarsz mutálni. A <code>new self(...)</code>-fel való újraépítés minden tulajdonság újbóli átadását jelenti — vagyis minden új tulajdonságnál az összes withert módosítani kell, és elvész minden állapot, amit a konstruktor nem vesz át. A klónozás az egész objektumot átviszi, és te csak az egy mezőt állítod:</p>
+          <pre class="code"><code class="language-php">final class Request
+{
+    private array $headers = [];
+    private array $query   = [];
+
+    public function __construct(
+        private string $method,
+        private string $uri,
+    ) {}
+
+    public function withHeader(string $name, string $value): self
+    {
+        $copy = clone $this;                         // viszi a method, uri, query értékeket, mindent
+        $copy-&gt;headers[strtolower($name)] = $value;  // private, de a $copy ugyanaz az osztály
+        return $copy;
+    }
+
+    public function withQuery(string $key, string $value): self
+    {
+        $copy = clone $this;
+        $copy-&gt;query[$key] = $value;
+        return $copy;
+    }
+}
+
+$base = (new Request('GET', '/reports'))-&gt;withHeader('Accept', 'application/json');
+$csv  = $base-&gt;withHeader('Accept', 'text/csv')-&gt;withQuery('period', '2026-Q1');
+
+// a $base érintetlen: az Accept továbbra is application/json, a query továbbra is üres
+$base === $csv;   // false — új identitás, a régi állapottal és a változással</code></pre>
+          <p>Két dolog teszi ezt működővé. A <code>clone</code> új identitást ad, így aki a <code>$base</code>-t átadta neked, nem sérül; és mivel a <code>$copy</code> ugyanannak az osztálynak a példánya, a <code>private</code> tulajdonságai a metóduson belülről továbbra is írhatók. Pontosan így épül fel a PSR-7 <code>withHeader()</code>/<code>withUri()</code>, és ezért biztonságos körbeadni egy request objektumot. A <code>DateTimeImmutable::modify()</code> ugyanez az ötlet a beépített könyvtárban.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Miért <code>withHeader()</code>-t használ a PSR-7 <code>setHeader()</code> helyett?” Mert egy megosztott request nem változhat meg egy olyan middleware alatt, amelyik erre nem számít; minden <code>with*()</code> klónt ad vissza, és a hívó példányát érintetlenül hagyja.</p>
           <details class="quiz" id="quiz-clone"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
             data-score-empty="Még nincs elkezdve.">
