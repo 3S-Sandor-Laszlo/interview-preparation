@@ -1136,8 +1136,8 @@ vatOf('1500');    // TypeError: int típusú kell legyen, string érkezett
 vatOf(1500.0);    // TypeError — nincs float-ból int, még veszteségmentesen sem
 vatOf(1500);      // rendben
 
-function avg(float $x): float { return $x; }
-avg(3);           // strict módban is rendben: int -> float az egyetlen megengedett bővítés
+function grossOf(float $netHuf): float { return $netHuf * 1.27; }
+grossOf(1500);    // 1905.0 — strict módban is rendben: int -> float az egyetlen megengedett bővítés
 
 // A beépített függvényekre is vonatkozik
 strlen(42);       // strict: TypeError.  kényszerítő: 2</code></pre>
@@ -1201,7 +1201,7 @@ function indexByEmail(array $users): array
                     <li class="quiz-option"><label><input type="radio" name="q-strict-2" value="a"><span><code>strlen(42)</code></span></label></li>
                     <li class="quiz-option"><label><input type="radio" name="q-strict-2" value="b"><span><code>vatOf('1500')</code> a <code>function vatOf(int $x)</code>-hez</span></label></li>
                     <li class="quiz-option"><label><input type="radio" name="q-strict-2" value="c"><span><code>vatOf(1500.0)</code> a <code>function vatOf(int $x)</code>-hez</span></label></li>
-                    <li class="quiz-option"><label><input type="radio" name="q-strict-2" value="d"><span><code>avg(3)</code> a <code>function avg(float $x)</code>-hez</span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-strict-2" value="d"><span><code>grossOf(1500)</code> a <code>function grossOf(float $x)</code>-hez</span></label></li>
                   </ul>
                   <p class="quiz-explain" hidden><b>Az <code>int</code> → <code>float</code> az egyetlen bővítés, ami strict módban is átmegy.</b> Minden más <code>TypeError</code> — beleértve a veszteségmentes <code>1500.0</code>-t is, és a beépített függvények hívásait is.</p>
                 </li>

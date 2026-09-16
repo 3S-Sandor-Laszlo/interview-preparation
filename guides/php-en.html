@@ -1136,8 +1136,8 @@ vatOf('1500');    // TypeError: must be of type int, string given
 vatOf(1500.0);    // TypeError — no float-to-int, not even a lossless one
 vatOf(1500);      // fine
 
-function avg(float $x): float { return $x; }
-avg(3);           // fine even in strict mode: int -&gt; float is the one allowed widening
+function grossOf(float $netHuf): float { return $netHuf * 1.27; }
+grossOf(1500);    // 1905.0 — fine even in strict mode: int -&gt; float is the one allowed widening
 
 // Internal functions honour it too
 strlen(42);       // strict: TypeError.  coercive: 2</code></pre>
@@ -1201,7 +1201,7 @@ function indexByEmail(array $users): array
                     <li class="quiz-option"><label><input type="radio" name="q-strict-2" value="a"><span><code>strlen(42)</code></span></label></li>
                     <li class="quiz-option"><label><input type="radio" name="q-strict-2" value="b"><span><code>vatOf('1500')</code> for <code>function vatOf(int $x)</code></span></label></li>
                     <li class="quiz-option"><label><input type="radio" name="q-strict-2" value="c"><span><code>vatOf(1500.0)</code> for <code>function vatOf(int $x)</code></span></label></li>
-                    <li class="quiz-option"><label><input type="radio" name="q-strict-2" value="d"><span><code>avg(3)</code> for <code>function avg(float $x)</code></span></label></li>
+                    <li class="quiz-option"><label><input type="radio" name="q-strict-2" value="d"><span><code>grossOf(1500)</code> for <code>function grossOf(float $x)</code></span></label></li>
                   </ul>
                   <p class="quiz-explain" hidden><b><code>int</code> → <code>float</code> is the single widening that survives strict mode.</b> Everything else throws a <code>TypeError</code> — including a lossless float-to-int like <code>1500.0</code>, and including calls into internal functions.</p>
                 </li>
