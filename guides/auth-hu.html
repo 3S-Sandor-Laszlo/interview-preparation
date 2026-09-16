@@ -81,7 +81,7 @@
           <h2>Alapok</h2>
           <span class="count">4 téma</span>
         </header>
-        <p class="part-intro">Minden token-kérdés végül két régebbire vezethető vissza: hol lakik a titok, és mi történik, ha kiszivárog. Kezdd itt, és a JWT-vita magától megválaszolja magát.</p>
+        <p class="part-intro">Minden token-kérdés végül két régebbire vezethető vissza: hol lakik a titok, és mi történik, ha kiszivárog. Kezdd itt, és a JWT-vita (JSON Web Token) magától megválaszolja magát.</p>
 
         <article class="topic" id="authn-authz">
           <h3>Hitelesítés, jogosultság, és a harmadik</h3>
@@ -105,9 +105,9 @@
               </ul>
             </div>
           </div>
-          <p>A harmadik az <b>elszámoltathatóság</b> — az auditnyom. Ha arra a kérdésre, hogy „ki mondta le ezt a rendelést”, egy <code>updated_at</code> oszlop a válaszod, akkor nincs ilyened. A faktorok háromfélék: amit tudsz (jelszó), amid van (TOTP-eszköz, passkey, hardverkulcs), ami vagy (biometria). Az MFA különböző fajtájú faktorokat jelent; a jelszó plusz biztonsági kérdés egy faktor kétszer.</p>
+          <p>A harmadik az <b>elszámoltathatóság</b> — az auditnyom. Ha arra a kérdésre, hogy „ki mondta le ezt a rendelést”, egy <code>updated_at</code> oszlop a válaszod, akkor nincs ilyened. A faktorok háromfélék: amit tudsz (jelszó), amid van (TOTP-eszköz (time-based one-time password), passkey, hardverkulcs), ami vagy (biometria). Az MFA (multi-factor authentication) különböző fajtájú faktorokat jelent; a jelszó plusz biztonsági kérdés egy faktor kétszer.</p>
           <div class="note"><b>Ahol a jogosultságkezelés elromlik.</b> A hitelesítés határkérdés, és a middleware-be való. A jogosultság doménkérdés, és oda való, ahol az erőforrást betöltöd — az a middleware, ami megnézte, hogy „be van-e jelentkezve valaki”, nem tudhatja, hogy <em>ez</em> a felhasználó birtokolja-e <em>azt</em> a rendelést. A kettő szétválasztása erre a két helyre a kézikönyv legjobban használható szerkezeti gondolata.</div>
-          <p class="asked"><b>Így kérdezik</b> — „Mi a különbség a 401 és a 403 között?” Aztán azonnal: „És az alkalmazásban hol dől el a kettő?” A második az igazi kérdés — aki mindkettőt ugyanabba a middleware-be teszi, az általában szállított már IDOR-t.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mi a különbség a 401 és a 403 között?” Aztán azonnal: „És az alkalmazásban hol dől el a kettő?” A második az igazi kérdés — aki mindkettőt ugyanabba a middleware-be teszi, az általában szállított már IDOR-t (Insecure Direct Object Reference).</p>
           <details class="quiz" id="quiz-authn-authz"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
             data-score-empty="Még nincs elkezdve.">
@@ -315,7 +315,7 @@ $_SESSION['last_seen'] = time();</code></pre>
             <table>
               <thead><tr><th>Attribútum</th><th>Mit ad</th></tr></thead>
               <tbody>
-                <tr><td><code>HttpOnly</code></td><td>A JavaScript nem olvashatja — egy XSS-ből így nem lesz azonnal teljes fiókátvétel</td></tr>
+                <tr><td><code>HttpOnly</code></td><td>A JavaScript nem olvashatja — egy XSS-ből (cross-site scripting) így nem lesz azonnal teljes fiókátvétel</td></tr>
                 <tr><td><code>Secure</code></td><td>Csak HTTPS-en. Enélkül egyetlen titkosítatlan kérés kiszivárogtatja a munkamenetet</td></tr>
                 <tr><td><code>SameSite=Lax</code></td><td>Felső szintű navigációnál elmegy, cross-site alerőforrás-kérésnél vagy űrlapnál nem. A böngésző alapértelmezése</td></tr>
                 <tr><td><code>SameSite=Strict</code></td><td>Cross-site sosem megy el — a legbiztonságosabb, de az e-mailből érkező felhasználó kijelentkezve landol</td></tr>
@@ -338,7 +338,7 @@ ini_set('session.cookie_httponly', '1');
 ini_set('session.use_only_cookies', '1');   // az azonosítót sose fogadd el az URL-ből
 session_name('__Host-sid');
 session_start();</code></pre>
-          <p>A <code>SameSite=Lax</code> a klasszikus CSRF nagy részét megszünteti, de ez mélységi védelem, nem helyettesítés: nem véd a <code>GET</code>-tel kiváltott állapotváltozás ellen, nem hat egy feltört aldomainről jövő same-site kérésre, és a régebbi kliensek figyelmen kívül hagyják. Tartsd meg a szinkronizáló tokeneket (vagy a double-submit mintát) az állapotváltoztató űrlapokon, és <code>GET</code>-tel soha ne módosíts semmit.</p>
+          <p>A <code>SameSite=Lax</code> a klasszikus CSRF (cross-site request forgery) nagy részét megszünteti, de ez mélységi védelem, nem helyettesítés: nem véd a <code>GET</code>-tel kiváltott állapotváltozás ellen, nem hat egy feltört aldomainről jövő same-site kérésre, és a régebbi kliensek figyelmen kívül hagyják. Tartsd meg a szinkronizáló tokeneket (vagy a double-submit mintát) az állapotváltoztató űrlapokon, és <code>GET</code>-tel soha ne módosíts semmit.</p>
           <p class="asked"><b>Így kérdezik</b> — „A <code>SameSite</code> miatt elhagyhatjuk a CSRF-tokent?” Nem — szűkebb támadási felület, ugyanaz a követelmény. A válasz az <em>indoklás</em> (aldomainek, régi kliensek, nem böngésző kliensek); a „nem, mert best practice” nem az.</p>
           <details class="quiz" id="quiz-cookies"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
@@ -513,7 +513,7 @@ if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked();
               <ul>
                 <li>A privát kulcs ír alá, a publikus ellenőriz</li>
                 <li>Ez a helyes választás szolgáltatások és külső felek között</li>
-                <li>A publikus kulcsok egy JWKS-végponton, <code>kid</code> alapján kiválasztva — ettől lesz egyáltalán lehetséges a rotáció</li>
+                <li>A publikus kulcsok egy JWKS-végponton (JSON Web Key Set), <code>kid</code> alapján kiválasztva — ettől lesz egyáltalán lehetséges a rotáció</li>
               </ul>
             </div>
           </div>
@@ -575,7 +575,7 @@ if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked();
               <thead><tr><th>Támadás</th><th>Mechanizmus</th><th>Védekezés</th></tr></thead>
               <tbody>
                 <tr><td><code>alg: none</code></td><td>A támadó leszedi az aláírást; egy naiv könyvtár elfogad egy aláíratlan tokent</td><td>Sose a token válassza az algoritmust — add meg kifejezetten, mit vársz</td></tr>
-                <tr><td>Algoritmus-összekeverés</td><td>A token RS256-ról HS256-ra váltva, a <b>publikus</b> kulccsal mint HMAC-titokkal aláírva</td><td>Rögzítsd az algoritmust kulcsonként; eltérésnél utasítsd el</td></tr>
+                <tr><td>Algoritmus-összekeverés</td><td>A token RS256-ról HS256-ra váltva, a <b>publikus</b> kulccsal mint HMAC-titokkal (hash-based message authentication code) aláírva</td><td>Rögzítsd az algoritmust kulcsonként; eltérésnél utasítsd el</td></tr>
                 <tr><td>Ellenőrzés nélküli dekódolás</td><td>A kód az aláírás-ellenőrzés előtt (vagy helyett) olvassa a claimeket</td><td>Előbb mindig ellenőrizz. Ellenőrizetlen tokenből sose bízz meg a <code>kid</code>-ben vagy az <code>iss</code>-ben</td></tr>
                 <tr><td><code>kid</code>-injektálás</td><td>A <code>kid</code> fájlútvonalként vagy SQL-értékként használva → traversal vagy injekció</td><td>A <code>kid</code> átlátszatlan keresőkulcs egy rögzített kulcshalmazban</td></tr>
                 <tr><td><code>jku</code> / <code>x5u</code> visszaélés</td><td>A fejléc a támadó által vezérelt kulcs-URL-re mutat</td><td>Hagyd figyelmen kívül ezeket a fejléceket; a JWKS URI legyen beégetve vagy engedélyezőlistán</td></tr>
@@ -732,7 +732,7 @@ if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked();
                 <tr><td><code>sessionStorage</code></td><td>Ugyanaz a kitettség, rövidebb élet</td><td>Immunis</td><td>Alig jobb; ugyanaz a hibaosztály</td></tr>
                 <tr><td>JS-ből olvasható süti</td><td>Teljesen kitett</td><td>Sebezhető</td><td>Mindkettőből a rosszabbik</td></tr>
                 <tr><td><code>HttpOnly</code> + <code>Secure</code> + <code>SameSite</code> süti</td><td>Szkriptből nem olvasható</td><td>CSRF-token / <code>SameSite</code> kell hozzá</td><td><b>Alapértelmezett választás</b> first-party webkliensekhez</td></tr>
-                <tr><td>Csak memóriában</td><td>Újratöltéskor eltűnik; frissítés egy <code>HttpOnly</code> sütivel</td><td>Immunis</td><td>A legjobb olyan SPA-hoz, ami elvisel egy frissítő hívást induláskor</td></tr>
+                <tr><td>Csak memóriában</td><td>Újratöltéskor eltűnik; frissítés egy <code>HttpOnly</code> sütivel</td><td>Immunis</td><td>A legjobb olyan SPA-hoz (single-page application), ami elvisel egy frissítő hívást induláskor</td></tr>
               </tbody>
             </table>
           </div>
@@ -811,7 +811,7 @@ if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked();
           </div>
           <p>A mondat, amit érdemes készenlétben tartani: <em>az OAuth azért van, hogy a felhasználó korlátozott hozzáférést adhasson egy alkalmazásnak az adataihoz anélkül, hogy odaadná a jelszavát.</em> Minden más — scope-ok, hozzájárulási képernyő, redirect URI-k — ebből következik. A kliens vagy <b>bizalmas</b> (szerver, ami titkot tud tartani), vagy <b>publikus</b> (SPA, mobilalkalmazás, bármi, ami a felhasználó eszközére kerül — az nem tud titkot tartani, akármit is mond a tutorial).</p>
           <p>A scope-ok durva delegálási címkék (<code>orders:read</code>), nem a te jogosultsági modelled. Az authorization server azt mondja: „ez a kliens ezeken a scope-okon belül járhat el a felhasználó nevében”; hogy <em>az a felhasználó</em> hozzáérhet-e <em>ahhoz a rekordhoz</em>, azt továbbra is a te API-d dönti el. A kettő összemosásából lesznek azok az API-k, ahol egy érvényes token más adatát olvassa.</p>
-          <p class="asked"><b>Így kérdezik</b> — „Magyarázd el az OAuth-ot egy juniornak.” Használd a parkolókulcs-hasonlatot — a kulcs elindítja az autót, de a csomagtartót nem nyitja —, aztán rögtön nevezd meg a csapdát: az OAuth arra válaszol, hogy „mit tehet ez az alkalmazás”, nem arra, hogy „ki ez a felhasználó”. Ez utóbbit az OIDC teszi hozzá.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Magyarázd el az OAuth-ot egy juniornak.” Használd a parkolókulcs-hasonlatot — a kulcs elindítja az autót, de a csomagtartót nem nyitja —, aztán rögtön nevezd meg a csapdát: az OAuth arra válaszol, hogy „mit tehet ez az alkalmazás”, nem arra, hogy „ki ez a felhasználó”. Ez utóbbit az OIDC (OpenID Connect) teszi hozzá.</p>
           <details class="quiz" id="quiz-oauth-roles"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
             data-score-empty="Még nincs elkezdve.">
@@ -864,7 +864,7 @@ if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked();
 
         <article class="topic" id="pkce">
           <h3>Authorization Code + PKCE — ezt kell tudni</h3>
-          <p>Az OAuth 2.1 alatt gyakorlatilag minden klienstípusnál ez a folyamat, publikusnál és bizalmasnál egyaránt. A PKCE (RFC 7636) megakadályozza, hogy az authorization code-ot elkapó támadó be tudja váltani.</p>
+          <p>Az OAuth 2.1 alatt gyakorlatilag minden klienstípusnál ez a folyamat, publikusnál és bizalmasnál egyaránt. A PKCE (Proof Key for Code Exchange) (RFC 7636) megakadályozza, hogy az authorization code-ot elkapó támadó be tudja váltani.</p>
           <pre class="code"><code class="language-php">// 1. A kliens generál egy nagy entrópiájú verifiert és a hozzá tartozó challenge-t.
 $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
 $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
@@ -961,7 +961,7 @@ $tokens = $http-&gt;post('https://auth.example.com/token', ['form_params' =&gt; 
               </tbody>
             </table>
           </div>
-          <p>Az OAuth 2.1 konszolidáció, nem újratervezés: a code granthez minden kliensnek kötelező a PKCE, az implicit és a ROPC megszűnt, a refresh tokeneknek küldőhöz kötöttnek vagy rotáltnak kell lenniük, a redirect URI-knak pedig pontosan egyezniük kell (nincs joker, nincs prefixegyezés — különben a saját domainen lévő nyílt átirányításból tokenlopás lesz).</p>
+          <p>Az OAuth 2.1 konszolidáció, nem újratervezés: a code granthez minden kliensnek kötelező a PKCE, az implicit és a ROPC (Resource Owner Password Credentials) megszűnt, a refresh tokeneknek küldőhöz kötöttnek vagy rotáltnak kell lenniük, a redirect URI-knak pedig pontosan egyezniük kell (nincs joker, nincs prefixegyezés — különben a saját domainen lévő nyílt átirányításból tokenlopás lesz).</p>
           <p class="asked"><b>Így kérdezik</b> — „Miért vezették ki az implicit flow-t?” Az access token az URL-fragmentben érkezik: böngészőelőzmények, referrer fejléc, bármely szkript az oldalon. A PKCE adott a publikus klienseknek egy biztonságos módot a code flow használatára, így az implicitnek nem maradt indoka.</p>
           <details class="quiz" id="quiz-other-flows"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
@@ -1101,15 +1101,15 @@ $tokens = $http-&gt;post('https://auth.example.com/token', ['form_params' =&gt; 
             <table>
               <thead><tr><th>Modell</th><th>Mi alapján dönt</th><th>Mihez illik</th><th>Mikor törik meg</th></tr></thead>
               <tbody>
-                <tr><td>RBAC</td><td>A szereplő szerepkörei</td><td>Kicsi, stabil szervezeti struktúrák</td><td>Szerepkör-robbanás: <code>editor_hu_finance_readonly</code></td></tr>
-                <tr><td>ABAC</td><td>A szereplő, az erőforrás, a művelet és a környezet attribútumai</td><td>Olyan szabályok, mint „azonos részleg, munkaidő, összeg &lt; 1M”</td><td>A szabályokat nehéz lesz átlátni és tesztelni</td></tr>
-                <tr><td>ReBAC</td><td>A szereplő és az objektum közti kapcsolatgráf</td><td>Megosztás, hierarchiák, „a szülőmappától örökölve”</td><td>Valódi motor kell hozzá (Zanzibar-stílusú) és gondos cache-invalidálás</td></tr>
-                <tr><td>ACL</td><td>Objektumonkénti lista arról, ki mit tehet</td><td>Kevés objektum, explicit engedélyek</td><td>Nem skálázódik milliós nagyságrendre</td></tr>
+                <tr><td>RBAC (role-based access control)</td><td>A szereplő szerepkörei</td><td>Kicsi, stabil szervezeti struktúrák</td><td>Szerepkör-robbanás: <code>editor_hu_finance_readonly</code></td></tr>
+                <tr><td>ABAC (attribute-based access control)</td><td>A szereplő, az erőforrás, a művelet és a környezet attribútumai</td><td>Olyan szabályok, mint „azonos részleg, munkaidő, összeg &lt; 1M”</td><td>A szabályokat nehéz lesz átlátni és tesztelni</td></tr>
+                <tr><td>ReBAC (relationship-based access control)</td><td>A szereplő és az objektum közti kapcsolatgráf</td><td>Megosztás, hierarchiák, „a szülőmappától örökölve”</td><td>Valódi motor kell hozzá (Zanzibar-stílusú) és gondos cache-invalidálás</td></tr>
+                <tr><td>ACL (access control list)</td><td>Objektumonkénti lista arról, ki mit tehet</td><td>Kevés objektum, explicit engedélyek</td><td>Nem skálázódik milliós nagyságrendre</td></tr>
               </tbody>
             </table>
           </div>
           <p>A gyakorlati tanács, ami tapasztaltnak hangzik: a kódban <b>jogosultságot</b> ellenőrizz, ne szerepkört. A <code>$user-&gt;can('order.refund')</code> túléli azt a napot, amikor valaki kitalál egy új szerepkört; a kétszáz helyen szétszórt <code>$user-&gt;hasRole('admin')</code> nem. A szerepkör ettől nem más, mint jogosultságok elnevezett csomagja, amit deploy nélkül lehet szerkeszteni. A legtöbb rendszer RBAC lesz néhány attribútumfeltétellel megtoldva — ez teljesen jó válasz, amíg tudatosan mondod ki.</p>
-          <p class="asked"><b>Így kérdezik</b> — „Hogyan terveznél jogosultságokat egy több bérlős SaaS-hoz?” A jogosultság az ellenőrzés egysége, a szerepkör csomag, és mindez bérlői tagsághoz kötve, nem globálisan a felhasználóra, plusz alapból tiltás. Említsd meg, hogy egy felhasználó több bérlőhöz is tartozhat különböző szerepkörökkel — ezt a követelményt szokták elfelejteni addig, amíg drága nem lesz.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan terveznél jogosultságokat egy több bérlős SaaS-hoz (software as a service)?” A jogosultság az ellenőrzés egysége, a szerepkör csomag, és mindez bérlői tagsághoz kötve, nem globálisan a felhasználóra, plusz alapból tiltás. Említsd meg, hogy egy felhasználó több bérlőhöz is tartozhat különböző szerepkörökkel — ezt a követelményt szokták elfelejteni addig, amíg drága nem lesz.</p>
           <details class="quiz" id="quiz-models"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
             data-score-empty="Még nincs elkezdve.">
@@ -1265,7 +1265,7 @@ final class Gate
 
         <article class="topic" id="idor">
           <h3>IDOR, BOLA és a bérlők közti szivárgás</h3>
-          <p>A leggyakoribb súlyos API-sebezhetőség nem egzotikus: egy végpont hitelesíti a hívót, majd azonosító alapján betölt egy rekordot anélkül, hogy ellenőrizné a tulajdonlást. Az OWASP Broken Object Level Authorizationnek hívja; a régebbi anyagok IDOR-nak.</p>
+          <p>A leggyakoribb súlyos API-sebezhetőség nem egzotikus: egy végpont hitelesíti a hívót, majd azonosító alapján betölt egy rekordot anélkül, hogy ellenőrizné a tulajdonlást. Az OWASP (Open Worldwide Application Security Project) Broken Object Level Authorizationnek hívja; a régebbi anyagok IDOR-nak.</p>
           <pre class="code"><code class="language-php">// Sebezhető: hitelesítve van, de nincs jogosultságellenőrzés.
 // Az azonosító átírásával más rendelését olvassa.
 public function show(int $id): Response
@@ -1284,7 +1284,7 @@ public function show(int $id): Response
 
     return $this-&gt;json($order);
 }</code></pre>
-          <p>A szerkezeti javítás az, hogy nehéz legyen megírni a nem biztonságos változatot: olyan repository, aminek a kereső metódusai <em>megkövetelik</em> a bérlőt, ORM-szinten alkalmazott globális lekérdezési scope, vagy bérlőnként külön kapcsolat/séma. A sorfolytonos egész azonosítók triviálissá teszik a végigpróbálást, tehát az UUIDv7 vagy egy előtaggal ellátott átlátszatlan azonosító (<code>ord_8127</code>) emeli a költséget — de ez mélységi védelem, nem jogosultságkezelés; egy kitalált azonosítót ugyanúgy el kell utasítani.</p>
+          <p>A szerkezeti javítás az, hogy nehéz legyen megírni a nem biztonságos változatot: olyan repository, aminek a kereső metódusai <em>megkövetelik</em> a bérlőt, ORM-szinten (object-relational mapper) alkalmazott globális lekérdezési scope, vagy bérlőnként külön kapcsolat/séma. A sorfolytonos egész azonosítók triviálissá teszik a végigpróbálást, tehát az UUIDv7 vagy egy előtaggal ellátott átlátszatlan azonosító (<code>ord_8127</code>) emeli a költséget — de ez mélységi védelem, nem jogosultságkezelés; egy kitalált azonosítót ugyanúgy el kell utasítani.</p>
           <div class="note"><b>404 vagy 403?</b> Ha már az is szivárgás, hogy egy rekord létezik — és több bérlős rendszerben általában az —, adj <code>404</code>-et. A <code>403</code>-at azokra az erőforrásokra tartsd fenn, amikről a hívó jogosan tudhat, de nem cselekedhet velük. Legyél következetes, mert a két válasz különbsége maga is orákulum.</div>
           <p class="asked"><b>Így kérdezik</b> — „Egy felhasználó átírja az azonosítót az URL-ben, és egy másik ügyfél számláját látja. Mi hibázott, és hogyan előzöd meg a következőt?” Hiányzott az objektumszintű jogosultságellenőrzés. A megelőzés szerkezeti — bérlőre szűkített repositoryk plusz policy —, aztán egy teszt, ami minden végponton állítja, hogy a bérlők közti hozzáférés elbukik.</p>
           <details class="quiz" id="quiz-idor"
@@ -1351,7 +1351,7 @@ public function show(int $id): Response
             <div><dt><code>hash_equals</code></dt><dd>Konstans idejű stringösszehasonlítás. Tokenekhez, HMAC-ekhez és CSRF-értékekhez ez kell — a <code>===</code> időzítést szivárogtat.</dd></div>
             <div><dt><code>random_bytes</code>, nem <code>rand</code></dt><dd>A <code>rand</code>/<code>mt_rand</code>/<code>uniqid</code> nem kriptográfiailag biztonságos. A <code>random_int</code> és a <code>random_bytes</code> igen.</dd></div>
             <div><dt>A visszaállító tokent hashelve tárold</dt><dd>Különben a kiszivárgott tokentábla egyenlő a kiszivárgott fióktáblával. Egyszer használatos, rövid lejárat.</dd></div>
-            <div><dt>A bearer az bearer</dt><dd>Aki birtokolja a tokent, az a felhasználó. Semmi nem köti klienshez, hacsak nem teszel hozzá DPoP-ot vagy mTLS-t.</dd></div>
+            <div><dt>A bearer az bearer</dt><dd>Aki birtokolja a tokent, az a felhasználó. Semmi nem köti klienshez, hacsak nem teszel hozzá DPoP-ot (Demonstrating Proof-of-Possession) vagy mTLS-t.</dd></div>
             <div><dt>Kijelentkezés = szerveroldali érvénytelenítés</dt><dd>A süti törlése csak egy együttműködő klienst érint.</dd></div>
             <div><dt>Rotálj jogosultságváltásnál</dt><dd>Új munkamenet-azonosító belépéskor, jelszóváltáskor és jogosultságemeléskor.</dd></div>
             <div><dt>Felhasználó-felderítés</dt><dd>A „nincs ilyen e-mail” a bejelentkezésen és a regisztráción elárulja, kinek van fiókja. Ugyanaz az üzenet, ugyanaz az időzítés.</dd></div>

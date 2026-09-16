@@ -89,7 +89,7 @@
                 <tr><td>Klasszikus rétegzett (n-tier)</td><td>Megjelenítés → üzleti logika → adat</td><td>Semmi nem akadályozza, hogy a felső réteg lenyúljon az aljára; a függőségek lefelé, az adatbázis felé mutatnak</td></tr>
                 <tr><td>Hexagonális (portok és adapterek)</td><td>Belül és kívül</td><td>Minden külső interakció explicit port, cserélhető adapterekkel</td></tr>
                 <tr><td>Onion</td><td>Koncentrikus gyűrűk a doménmodell körül</td><td>Nevet ad a gyűrűknek, és megtiltja, hogy a belső ismerje a külsőt</td></tr>
-                <tr><td>Clean</td><td>Használati esetek a középpontban</td><td>A függőségi szabályt szabályként mondja ki, plusz explicit határ-DTO-kat</td></tr>
+                <tr><td>Clean</td><td>Használati esetek a középpontban</td><td>A függőségi szabályt szabályként mondja ki, plusz explicit határ-DTO-kat (data transfer object)</td></tr>
               </tbody>
             </table>
           </div>
@@ -347,7 +347,7 @@ final class InMemoryGateway implements PaymentGateway     // a tests/ könyvtár
             <table>
               <thead><tr><th>Építőelem</th><th>Identitás</th><th>Módosíthatóság</th><th>Példa</th></tr></thead>
               <tbody>
-                <tr><td>Értékobjektum (VO)</td><td>Nincs — érték szerint egyenlő</td><td>Immutábilis</td><td><code>Money</code>, <code>Email</code>, <code>DateRange</code></td></tr>
+                <tr><td>Értékobjektum (VO (value object))</td><td>Nincs — érték szerint egyenlő</td><td>Immutábilis</td><td><code>Money</code>, <code>Email</code>, <code>DateRange</code></td></tr>
                 <tr><td>Entitás</td><td>Van azonosítója; az alapján egyenlő</td><td>Idővel változik</td><td><code>Order</code>, <code>Customer</code></td></tr>
                 <tr><td>Aggregátum</td><td>Klaszter egyetlen gyökérentitással</td><td>Csak a gyökéren keresztül módosul</td><td><code>Order</code> és a hozzá tartozó <code>OrderLine</code>-ok</td></tr>
                 <tr><td>Doménszolgáltatás</td><td>Állapotmentes</td><td>—</td><td>Több aggregátumot átfogó szabály</td></tr>
@@ -377,7 +377,7 @@ final class InMemoryGateway implements PaymentGateway     // a tests/ könyvtár
     public function lines(): array { return $this-&gt;lines; }
 }</code></pre>
           <p>Az aggregátumhatár <b>konzisztenciahatár</b>: ami belül van, az egy tranzakcióban mentődik és mindig érvényes; ami kívül, az azonosítón keresztül érhető el, és csak eventually lesz konzisztens. Ebből jön a méretezési heurisztika: tartsd kicsin az aggregátumokat, más aggregátumra azonosítóval hivatkozz, ne objektummal, és ha egy szabály két aggregátumon ível át, akkor vagy egy aggregátum a kettő, vagy a szabály eventually consistent. Egy <code>Order</code>, ami egy teljes <code>Customer</code> objektumot tart, a klasszikus túlméretezett aggregátum.</p>
-          <div class="note"><b>Anémiás doménmodell.</b> Olyan entitások, amik getterekkel és setterekkel felszerelt adatzsákok, és minden viselkedés szolgáltatásokban van. Fowler azért nevezte antimintának, mert egy objektummodell költségét fizeted ki, és semmit nem kapsz cserébe belőle. Ugyanakkor ez a legtöbb keretrendszer-tutorial alapértelmezett alakja, tehát számíts rá, hogy megkérdezik, megtartanád-e — az „igen egy CRUD adminfelületen, nem az árazómotorban” jobb válasz, mint bármelyik irányba tett dogma.</div>
+          <div class="note"><b>Anémiás doménmodell.</b> Olyan entitások, amik getterekkel és setterekkel felszerelt adatzsákok, és minden viselkedés szolgáltatásokban van. Fowler azért nevezte antimintának, mert egy objektummodell költségét fizeted ki, és semmit nem kapsz cserébe belőle. Ugyanakkor ez a legtöbb keretrendszer-tutorial alapértelmezett alakja, tehát számíts rá, hogy megkérdezik, megtartanád-e — az „igen egy CRUD (create, read, update, delete) adminfelületen, nem az árazómotorban” jobb válasz, mint bármelyik irányba tett dogma.</div>
           <p class="asked"><b>Így kérdezik</b> — „Hogyan döntöd el, hol van az aggregátumhatár?” Tranzakciós invariáns alapján: minek kell igaznak lennie minden commitnál. Ha két dolog rövid ideig inkonzisztens lehet anélkül, hogy az üzletet elrontaná, akkor különböző aggregátumokhoz tartoznak, és eseményeken keresztül beszélnek.</p>
           <details class="quiz" id="quiz-domain-model"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
@@ -567,7 +567,7 @@ final class OrderSummaryQuery
         // ... végrehajtás, majd a sorok leképezése readonly DTO-kra.
     }
 }</code></pre>
-          <p>A CQRS legolcsóbb hasznos változata pontosan ez: az írásokhoz marad a Doctrine, az olvasásokhoz leszállsz SQL-be, és nem próbálod ugyanazt az entitásgráfot mindkettőre ráhúzni. Nulla extra infrastruktúra, a haszon nagy része megvan. A drága változat — külön olvasási tár, amit események tartanak naprakészen — független skálázást és olyan lekérdezési alakokat ad, amiket az írási tár nem tud kiszolgálni, cserébe eventual consistencyt és egy karbantartandó projekciót kapsz. Használati esetenként vezesd be, sose egyben.</p>
+          <p>A CQRS (Command Query Responsibility Segregation) legolcsóbb hasznos változata pontosan ez: az írásokhoz marad a Doctrine, az olvasásokhoz leszállsz SQL-be, és nem próbálod ugyanazt az entitásgráfot mindkettőre ráhúzni. Nulla extra infrastruktúra, a haszon nagy része megvan. A drága változat — külön olvasási tár, amit események tartanak naprakészen — független skálázást és olyan lekérdezési alakokat ad, amiket az írási tár nem tud kiszolgálni, cserébe eventual consistencyt és egy karbantartandó projekciót kapsz. Használati esetenként vezesd be, sose egyben.</p>
           <div class="note"><b>„Lássam a saját írásomat.”</b> Amint az olvasási modell aszinkron, az a felhasználó, aki ment, majd átirányítódik egy listára, lehet, hogy nem látja a változását. Kezeld tudatosan: a parancs után olvass az írási modellből, add vissza a létrehozott erőforrást a válaszban, vagy tedd optimistává a felületet. A „a projekció általában gyors” nem terv.</div>
           <p class="asked"><b>Így kérdezik</b> — „Mi az a CQRS, és mikor használnád?” Külön modell olvasásra és írásra; akkor, ha a kettőnek tényleg más az alakja vagy a terhelési profilja. Mondd ki kifejezetten, hogy nem jelent két adatbázist — általában pontosan ezt a különbségtételt ellenőrzik.</p>
           <details class="quiz" id="quiz-cqrs"
@@ -837,7 +837,7 @@ $this-&gt;transaction-&gt;wrap(function () use ($order) {
                 <li>Eseményséma-verziózás, örökre — a múltat nem tudod elmigrálni</li>
                 <li>Pillanatképek, amint a folyamok hosszúra nőnek</li>
                 <li>Eventual consistency minden olvasásban</li>
-                <li>GDPR-törlés egy csak hozzáfűzhető táron (crypto-shredding)</li>
+                <li>GDPR-törlés (General Data Protection Regulation) egy csak hozzáfűzhető táron (crypto-shredding)</li>
                 <li>Egy csapat, aminek előbb meg kell tanulnia, hogy hibát tudjon keresni benne</li>
               </ul>
             </div>
@@ -1062,7 +1062,7 @@ public function testDomainDoesNotDependOnInfrastructure(): void
             <table>
               <thead><tr><th>Fogalom</th><th>Symfony</th><th>Laravel</th><th>Szabvány</th></tr></thead>
               <tbody>
-                <tr><td>Bekötés / DI</td><td>Service container, autowiring, fordított</td><td>Service container, service providerek</td><td>PSR-11</td></tr>
+                <tr><td>Bekötés / DI (dependency injection)</td><td>Service container, autowiring, fordított</td><td>Service container, service providerek</td><td>PSR-11</td></tr>
                 <tr><td>Kérésfeldolgozó lánc</td><td>Kernel-események, vagy PSR-15 middleware</td><td>Middleware stack</td><td>PSR-15</td></tr>
                 <tr><td>Események</td><td>EventDispatcher</td><td>Eventek és listenerek</td><td>PSR-14</td></tr>
                 <tr><td>Aszinkron munka</td><td>Messenger (busz + transportok)</td><td>Queue-k és jobok</td><td>—</td></tr>
@@ -1213,7 +1213,7 @@ public function testDomainDoesNotDependOnInfrastructure(): void
 #   - Egy további workert kell futtatni, monitorozni és riasztani rá (lemaradás &gt; 60s riaszt).
 # Alternatívák: 2PC (elvetve: blokkol, a brokerünk nem támogatja),
 #               CDC a binlogon (egyelőre elvetve: üzemeltetési költség, méretnél újranézni).</code></pre>
-          <p>Az ADR egy oldal a repositoryban, elfogadás után módosíthatatlan, nem szerkesztjük, hanem leváltjuk. A valódi értéke fél évvel később derül ki, amikor valaki megkérdezi, hogy miért — és azért tűnik ki az a jelölt, aki ADR-eket említ, mert ez azt jelzi, hogy elvárja, hogy számon kérjék rajta a döntéseit, nem csak meghozza őket és továbbáll.</p>
+          <p>Az ADR (Architecture Decision Record) egy oldal a repositoryban, elfogadás után módosíthatatlan, nem szerkesztjük, hanem leváltjuk. A valódi értéke fél évvel később derül ki, amikor valaki megkérdezi, hogy miért — és azért tűnik ki az a jelölt, aki ADR-eket említ, mert ez azt jelzi, hogy elvárja, hogy számon kérjék rajta a döntéseit, nem csak meghozza őket és továbbáll.</p>
           <p class="asked"><b>Így kérdezik</b> — „Mesélj egy architekturális döntésről, amit megbántál.” Válaszolj egy valódival, a jellel, amiből kiderült, és azzal, amin változtattál. Annak megnevezése, hogy milyen visszafordítási költséget hagytál figyelmen kívül, többet ér bármennyi mintaszókincsnél.</p>
           <details class="quiz" id="quiz-tradeoffs"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
@@ -1292,7 +1292,7 @@ final class RoutingInvoices implements Invoices
     }
 }</code></pre>
           <p>A munka nagy részét két támogató gondolat végzi. A <b>seam</b> az a hely, ahol a viselkedés megváltoztatható a körülötte lévő kód szerkesztése nélkül — PHP-ban egy interfész plusz konstruktorinjektálás; a seamek megtalálása vagy létrehozása minden legacy migráció első lépése. Az <b>anti-corruption layer</b> egy fordítási határ, ami megakadályozza, hogy a legacy modell átszivárogjon az újba: az új kontextus a saját nyelvét beszéli, és a szélén konvertál. Enélkül az újraírás pontosan azt az alakot örökli, ami elől menekülni akart.</p>
-          <p class="asked"><b>Így kérdezik</b> — „Hogyan modernizálnál egy tízéves PHP-alkalmazást?” Soha nem nagy bumm újraírással. Karakterizációs tesztek a jelenlegi viselkedés rögzítésére, homlokzat a határon, egy képesség kiemelése ACL-lel, forgalomátterelés feature flaggel és árnyékösszehasonlítással, majd a régi út törlése. Aztán: azt a képességet vedd először, ahol a változási ráta a legnagyobb, mert ott térül meg.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Hogyan modernizálnál egy tízéves PHP-alkalmazást?” Soha nem nagy bumm újraírással. Karakterizációs tesztek a jelenlegi viselkedés rögzítésére, homlokzat a határon, egy képesség kiemelése ACL-lel (anti-corruption layer), forgalomátterelés feature flaggel és árnyékösszehasonlítással, majd a régi út törlése. Aztán: azt a képességet vedd először, ahol a változási ráta a legnagyobb, mert ott térül meg.</p>
           <details class="quiz" id="quiz-migration"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
             data-score-empty="Még nincs elkezdve.">
@@ -1348,16 +1348,16 @@ final class RoutingInvoices implements Invoices
           <dl class="rapid">
             <div><dt>Conway törvénye</dt><dd>A rendszer szerkezete a kommunikáció szerkezetét tükrözi. A fordított manőver — a csapatok átszabása a kívánt architektúráért — valódi taktika.</dd></div>
             <div><dt>Csatolás és kohézió</dt><dd>Alacsony csatolás a modulok között, magas kohézió egy modulon belül. Minden itteni minta ezt vásárolja meg.</dd></div>
-            <div><dt>CAP, őszintén</dt><dd>Partíció márpedig lesz, tehát a valódi választás konzisztencia vagy rendelkezésre állás egy partíció alatt. A „CP vagy AP” műveletenkénti döntés, nem az adatbázisra ragasztott címke.</dd></div>
+            <div><dt>CAP (Consistency, Availability, Partition tolerance), őszintén</dt><dd>Partíció márpedig lesz, tehát a valódi választás konzisztencia vagy rendelkezésre állás egy partíció alatt. A „CP vagy AP” műveletenkénti döntés, nem az adatbázisra ragasztott címke.</dd></div>
             <div><dt>Idempotencia mindenütt</dt><dd>A legalább-egyszeri kézbesítés az alapértelmezés minden komolyan vehető brokernél. A fogyasztót eszerint tervezd.</dd></div>
             <div><dt>Kétfázisú commit</dt><dd>Létezik, és ritkán éri meg: blokkol, kell hozzá résztvevői támogatás, és egy lassú csomópont megakasztja az egészet.</dd></div>
             <div><dt>Közös adatbázis szolgáltatások között</dt><dd>A klasszikus elosztott monolit: független deploy, összekötött séma. Rosszabb, mint egy monolit.</dd></div>
             <div><dt>A repository aggregátumot ad vissza</dt><dd>Nem sortömböket, nem query buildert. Ha sorokra van szükséged, az az olvasási oldal.</dd></div>
             <div><dt>Anémiás modell</dt><dd>Getterek, setterek, logika a szolgáltatásokban. Néha pontosan ez a helyes — mondd meg, mikor, ne az antimintát mondd fel.</dd></div>
             <div><dt>DTO vagy értékobjektum</dt><dd>A DTO viselkedés nélküli szállítási alak; a VO doménfogalom invariánsokkal és egyenlőséggel.</dd></div>
-            <div><dt>A hexagonális nem könyvtárszerkezet</dt><dd>Ha átnevezed a könyvtárakat <code>Domain</code>-re és <code>Infrastructure</code>-re, miközben az entitás az ORM ősosztályából származik, semmi nem változott.</dd></div>
+            <div><dt>A hexagonális nem könyvtárszerkezet</dt><dd>Ha átnevezed a könyvtárakat <code>Domain</code>-re és <code>Infrastructure</code>-re, miközben az entitás az ORM (object-relational mapper) ősosztályából származik, semmi nem változott.</dd></div>
             <div><dt>Az eventual consistency terméki döntés</dt><dd>Valakinek el kell fogadnia, hogy egy képernyő két másodpercig elavult lehet. Ezt egyeztesd le, ne feltételezd.</dd></div>
-            <div><dt>YAGNI és a függőségi szabály</dt><dd>A szabályt olcsó az első naptól követni és drága utólag beépíteni; az üzenetbusszal ez fordítva van. Eszerint vezesd be őket.</dd></div>
+            <div><dt>YAGNI (You Aren’t Gonna Need It) és a függőségi szabály</dt><dd>A szabályt olcsó az első naptól követni és drága utólag beépíteni; az üzenetbusszal ez fordítva van. Eszerint vezesd be őket.</dd></div>
             <div><dt>Elosztott tracing</dt><dd>Amint a folyamatok szolgáltatásokon vagy sorokon ívelnek át, a korrelációs azonosító minden üzeneten nem opció.</dd></div>
             <div><dt>A legjobb válasz a „melyik mintá”-ra</dt><dd>„Mi a megkötés?” A kontextus nélküli architektúra-kérdések azt mérik, hogy megkérdezed-e.</dd></div>
           </dl>

@@ -86,7 +86,7 @@
 
         <article class="topic" id="anatomy">
           <h3>Kérés és válasz felépítése</h3>
-          <p>A kérés egy metódusból, egy célból, fejlécekből és egy opcionális törzsből áll. A válasz egy státuszsorból, fejlécekből és egy opcionális törzsből. Minden más — REST, GraphQL, webhookok — csak konvenció e négy elem fölött.</p>
+          <p>A kérés egy metódusból, egy célból, fejlécekből és egy opcionális törzsből áll. A válasz egy státuszsorból, fejlécekből és egy opcionális törzsből. Minden más — REST (Representational State Transfer), GraphQL, webhookok — csak konvenció e négy elem fölött.</p>
           <pre class="code"><code class="language-http">POST /v1/payments HTTP/1.1
 Host: api.example.com
 Content-Type: application/json
@@ -102,7 +102,7 @@ Cache-Control: no-store
 
 {"id": "pay_8127", "status": "succeeded", "amount": 1500}</code></pre>
           <p>Két tulajdonságot érdemes kimondani, mert ezek magyarázzák a protokoll nagy részét: a HTTP <b>állapotmentes</b> (a szerver nem őriz kliens-kontextust két kérés között — aminek kell, annak benne kell lennie a kérésben), a fejlécek pedig <b>az üzenetről szóló metaadatok</b>, nem az erőforrásról. A HTTP/2 és a HTTP/3 a szállítást változtatja meg (bináris keretezés, multiplexelés, QUIC-en nincs fejsorbeli blokkolás), a szemantikai modellt nem.</p>
-          <p class="asked"><b>Így kérdezik</b> — „A HTTP állapotmentes, akkor hogyan működik a bejelentkezés?” Az állapot egy sütiben vagy tokenben él, amit a kliens minden kérésnél újraküld; a szerver tarthat munkamenet-tárat, de maga a <em>protokoll</em> továbbra sem emlékszik semmire két kérés között. Pontosan ezért működik egyáltalán a terheléselosztás több FPM-worker között.</p>
+          <p class="asked"><b>Így kérdezik</b> — „A HTTP állapotmentes, akkor hogyan működik a bejelentkezés?” Az állapot egy sütiben vagy tokenben él, amit a kliens minden kérésnél újraküld; a szerver tarthat munkamenet-tárat, de maga a <em>protokoll</em> továbbra sem emlékszik semmire két kérés között. Pontosan ezért működik egyáltalán a terheléselosztás több FPM-worker (FastCGI Process Manager) között.</p>
           <details class="quiz" id="quiz-anatomy"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
             data-score-empty="Még nincs elkezdve.">
@@ -455,7 +455,7 @@ if ($ifNoneMatch !== '' &amp;&amp; in_array($etag, array_map('trim', explode(','
 
         <article class="topic" id="caching">
           <h3>Cache-fejlécek, és hogy ki gyorsítótáraz</h3>
-          <p>Három szereplő: a böngésző (privát cache), egy megosztott cache (CDN, Varnish, reverse proxy) és az alkalmazás saját cache-e. A <code>Cache-Control</code> az utasításkészlet; ha egy hitelesített végponton elrontod, az egyik felhasználó adata a másikhoz kerül.</p>
+          <p>Három szereplő: a böngésző (privát cache), egy megosztott cache (CDN (content delivery network), Varnish, reverse proxy) és az alkalmazás saját cache-e. A <code>Cache-Control</code> az utasításkészlet; ha egy hitelesített végponton elrontod, az egyik felhasználó adata a másikhoz kerül.</p>
           <div class="table-scroll">
             <table>
               <thead><tr><th>Direktíva</th><th>Hatás</th></tr></thead>
@@ -475,7 +475,7 @@ if ($ifNoneMatch !== '' &amp;&amp; in_array($etag, array_map('trim', explode(','
           <pre class="code"><code class="language-http">Cache-Control: public, max-age=60, s-maxage=600, stale-while-revalidate=30
 Vary: Accept, Accept-Encoding</code></pre>
           <div class="note"><b>A szivárgás.</b> Hitelesített kérésre adott válasznak <code>private</code>-nak (vagy <code>no-store</code>-nak) kell lennie, és ha megosztott cache van előtte, <code>Vary: Authorization</code> kell — vagy még inkább jelöld egyáltalán nem cache-elhetőnek. A „raktunk elé egy CDN-t, és a felhasználók egymás dashboardját kezdték látni” valódi incidenstípus, és az interjúztatók ismerik.</div>
-          <p class="asked"><b>Így kérdezik</b> — „Mi a különbség a <code>no-cache</code> és a <code>no-store</code> között?” A <code>no-cache</code> tárol, de mindig újraérvényesít; a <code>no-store</code> egyáltalán nem engedi lemezre vagy memóriába írni a választ. Az invalidálási stratégiák ezen túl: rövid TTL + ETag-alapú újraérvényesítés, vagy surrogate key / címke szerinti purge a CDN-en.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mi a különbség a <code>no-cache</code> és a <code>no-store</code> között?” A <code>no-cache</code> tárol, de mindig újraérvényesít; a <code>no-store</code> egyáltalán nem engedi lemezre vagy memóriába írni a választ. Az invalidálási stratégiák ezen túl: rövid TTL (time to live) + ETag-alapú újraérvényesítés, vagy surrogate key / címke szerinti purge a CDN-en.</p>
           <details class="quiz" id="quiz-caching"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
             data-score-empty="Még nincs elkezdve.">
@@ -558,7 +558,7 @@ Vary: Accept, Accept-Encoding</code></pre>
             </div>
           </div>
           <p>Konvenciók, amiket érdemes kimondani, mert az átnézők a következetességet keresik: többes számú gyűjtemény-főnevek (<code>/orders</code>), kisbetűs kebab-case a többszavas szegmenseknél (<code>/purchase-orders</code>), azonosítók az útvonalban, szűrők a query stringben, nincs záró perjel, nincs fájlkiterjesztés. Legfeljebb egy szintet ágyazz: a <code>/users/42/orders</code> rendben van, a <code>/users/42/orders/8127/lines/3/discounts</code> már karbantartási probléma — a mély erőforrást akaszd a saját gyökerére.</p>
-          <div class="note"><b>Ami nem CRUD.</b> A valódi doménekben van „lemondás”, „publikálás”, „visszatérítés”. Három őszinte lehetőség: modellezd a műveletet erőforrásként (<code>POST /orders/8127/cancellation</code>), modellezd állapotátmenetként (<code>PATCH /orders/8127</code>, <code>{"status":"cancelled"}</code>), vagy ismerd el, hogy ez RPC-stílusú parancs, és tartsd jól elkülönített sarokban. Általában az első a legjobb, mert így magának a műveletnek lesz azonosítója, időbélyege és nyoma az auditban.</div>
+          <div class="note"><b>Ami nem CRUD (create, read, update, delete).</b> A valódi doménekben van „lemondás”, „publikálás”, „visszatérítés”. Három őszinte lehetőség: modellezd a műveletet erőforrásként (<code>POST /orders/8127/cancellation</code>), modellezd állapotátmenetként (<code>PATCH /orders/8127</code>, <code>{"status":"cancelled"}</code>), vagy ismerd el, hogy ez RPC-stílusú (remote procedure call) parancs, és tartsd jól elkülönített sarokban. Általában az első a legjobb, mert így magának a műveletnek lesz azonosítója, időbélyege és nyoma az auditban.</div>
           <p class="asked"><b>Így kérdezik</b> — „Hogyan modelleznéd a ‘rendelés lemondása’ műveletet RESTben?” Előbb az erőforrás-mint-művelet változatot mondd, aztán az indoklást: kap egy azonosítót, amire újrapróbálkozhatsz, amire hivatkozhatsz support-ticketben és amit auditálhatsz — ezt egy státuszmező <code>PATCH</code>-e nem adja meg.</p>
           <details class="quiz" id="quiz-resources"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
@@ -774,11 +774,11 @@ GET /v1/orders/8127/lines                 → a gyűjtemény saját URI-n</code>
                 <tr><td class="num">0</td><td>Egy URI, egy ige — a HTTP mint alagút</td><td>SOAP-stílusú <code>POST /api</code></td></tr>
                 <tr><td class="num">1</td><td>Az erőforrások saját URI-t kapnak</td><td>Még mindig mindenre <code>POST</code></td></tr>
                 <tr><td class="num">2</td><td>Metódusok és státuszkódok helyes használata</td><td><b>Itt él gyakorlatilag minden valódi API</b></td></tr>
-                <tr><td class="num">3</td><td>Hipermédia-vezérlők a reprezentációban</td><td>HAL, JSON:API linkek, <code>Link</code> fejlécek</td></tr>
+                <tr><td class="num">3</td><td>Hipermédia-vezérlők a reprezentációban</td><td>HAL (Hypertext Application Language), JSON:API linkek, <code>Link</code> fejlécek</td></tr>
               </tbody>
             </table>
           </div>
-          <p>A 3. szint azt jelenti, hogy a kliens a válaszban lévő linkekből tudja meg, mit tehet legközelebb, nem beégetett URI-sablonokból. Ez Fielding tényleges REST-definíciója — egy hipermédia nélküli API szigorúan véve nem REST. Ugyanakkor egy backend és a saját SPA-ja között ritkán térül meg, hiszen a kliens amúgy is az API ismeretével együtt kerül ki. Ahol viszont megtérül: hosszú életű publikus API-k, állapotgépek (most éppen mely átmenetek szabályosak), és a lapozás.</p>
+          <p>A 3. szint maga a HATEOAS (Hypermedia as the Engine of Application State): a kliens a válaszban lévő linkekből tudja meg, mit tehet legközelebb, nem beégetett URI-sablonokból. Ez Fielding tényleges REST-definíciója — egy hipermédia nélküli API szigorúan véve nem REST. Ugyanakkor egy backend és a saját SPA-ja (single-page application) között ritkán térül meg, hiszen a kliens amúgy is az API ismeretével együtt kerül ki. Ahol viszont megtérül: hosszú életű publikus API-k, állapotgépek (most éppen mely átmenetek szabályosak), és a lapozás.</p>
           <pre class="code"><code class="language-json">{
   "id": "ord_8127",
   "status": "paid",
@@ -1045,7 +1045,7 @@ LUA;
 Retry-After: 12
 RateLimit: limit=100, remaining=0, reset=12
 RateLimit-Policy: 100;w=60</code></pre>
-          <p>Ahol lehet, hitelesítő adat szerint korlátozz (API-kulcs, felhasználó, bérlő), ne IP szerint — a NAT mögött egy egész iroda egyetlen címen van. Mindig mondd meg a kliensnek, mi történt: legalább <code>Retry-After</code>, és a <code>RateLimit</code> fejléccsalád, ha jól viselkedő klienseket szeretnél. És számíts a kliensoldali folytatásra: exponenciális visszalépés <em>jitterrel</em>, mert a szinkronban újrapróbálkozó kliensektől lesz egy korlátozott API-ból leállt API.</p>
+          <p>Ahol lehet, hitelesítő adat szerint korlátozz (API-kulcs, felhasználó, bérlő), ne IP szerint — a NAT (network address translation) mögött egy egész iroda egyetlen címen van. Mindig mondd meg a kliensnek, mi történt: legalább <code>Retry-After</code>, és a <code>RateLimit</code> fejléccsalád, ha jól viselkedő klienseket szeretnél. És számíts a kliensoldali folytatásra: exponenciális visszalépés <em>jitterrel</em>, mert a szinkronban újrapróbálkozó kliensektől lesz egy korlátozott API-ból leállt API.</p>
           <p class="asked"><b>Így kérdezik</b> — „Hogyan korlátoznál egy API-t?” Token bucket Redisben, Luával atomivá téve, API-kulcsonként, <code>429</code> és <code>Retry-After</code>. Említsd a fix ablak határon átcsúszó löketét — az igazi jelzés az, hogy tudod, miért rossz a naiv számláló.</p>
           <details class="quiz" id="quiz-ratelimit"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
@@ -1264,7 +1264,7 @@ Link: &lt;https://api.example.com/docs/v2-migration&gt;; rel="deprecation"; type
               </ul>
             </div>
           </div>
-          <p>Ennek a kliensoldali párja Postel elvének egy élesebb változata: legyél <b>toleráns olvasó</b>. Az ismeretlen mezőket hagyd figyelmen kívül ahelyett, hogy hibáznál, ne támaszkodj a kulcsok sorrendjére, ne feltételezd, hogy az enum-értékek halmaza zárt, és minden váratlan 5xx-et kezelj újrapróbálhatóként, ne végzetesként. PHP-ban ez azt jelenti, hogy a JSON-t mezőnként képezed le DTO-kra, nem az egész alakot állítod, és minden külső enumon átmenő <code>match</code>-nek van default ága.</p>
+          <p>Ennek a kliensoldali párja Postel elvének egy élesebb változata: legyél <b>toleráns olvasó</b>. Az ismeretlen mezőket hagyd figyelmen kívül ahelyett, hogy hibáznál, ne támaszkodj a kulcsok sorrendjére, ne feltételezd, hogy az enum-értékek halmaza zárt, és minden váratlan 5xx-et kezelj újrapróbálhatóként, ne végzetesként. PHP-ban ez azt jelenti, hogy a JSON-t mezőnként képezed le DTO-kra (data transfer object), nem az egész alakot állítod, és minden külső enumon átmenő <code>match</code>-nek van default ága.</p>
           <div class="note"><b>Szerződéstesztelés.</b> A hiteles módja annak, hogy tudd, nem törtél el senkit: OpenAPI-dokumentum verziókezelésben, egy diff eszköz a CI-ban, ami törő változtatásnál elbukik, és fogyasztóvezérelt szerződéstesztek a belső fogyasztókhoz. Az „észrevennénk kódátnézésen” senior szinten nem válasz.</div>
           <p class="asked"><b>Így kérdezik</b> — „Törő változtatás egy új mező a válaszban?” Általában nem — hacsak egy kliens zárt sémára nem validál, és pontosan ezért publikálsz olyan sémát, ami megengedi a többletmezőket, és mondod is ezt a dokumentációban.</p>
           <details class="quiz" id="quiz-compat"
@@ -1408,13 +1408,13 @@ Link: &lt;https://api.example.com/docs/v2-migration&gt;; rel="deprecation"; type
             <div><dt><code>PUT</code> vagy <code>POST</code> létrehozáshoz</dt><dd><code>POST</code>, ha a szerver adja az azonosítót; <code>PUT</code>, ha a kliens, és az URI előre ismert.</dd></div>
             <div><dt>Törzs a <code>GET</code>-en</dt><dd>Már nem kifejezetten tiltott, de a proxyk, cache-ek és kliensek eldobják. Sose tervezz ilyet.</dd></div>
             <div><dt>Miért nincs törzs a <code>204</code>-en</dt><dd>A szabvány mondja ki — amit odaírsz, azt a közbenső elemek csendben eldobhatják.</dd></div>
-            <div><dt>CORS preflight</dt><dd>Az <code>OPTIONS</code> kérés, amit a böngésző nem egyszerű cross-origin hívás előtt küld. A CORS böngészőpolitika, nem szerverbiztonság.</dd></div>
+            <div><dt>CORS (cross-origin resource sharing) preflight</dt><dd>Az <code>OPTIONS</code> kérés, amit a böngésző nem egyszerű cross-origin hívás előtt küld. A CORS böngészőpolitika, nem szerverbiztonság.</dd></div>
             <div><dt><code>Authorization</code> és cache</dt><dd>Hitelesített kérésre adott válasz nem megosztott-cache-elhető, hacsak kifejezetten nem engeded. Adj <code>private</code>-ot vagy <code>no-store</code>-t.</dd></div>
             <div><dt>A HTTP/2 nem változtat a szemantikán</dt><dd>Ugyanazok a metódusok, fejlécek, státuszkódok; más keretezés. A domain sharding és a sprite-ok viszont antimintává váltak.</dd></div>
             <div><dt>Időtúllépések</dt><dd>Minden kimenő hívásnak kell kapcsolódási és teljes időkorlát. A hiányzó timeout az, amitől egy lassú upstream kimeríti az FPM-poolodat.</dd></div>
             <div><dt>Csak azt ismételd, ami biztonságos</dt><dd>Idempotens metódusokat, vagy bármit, ami idempotencia-kulcsot visz. Mindig jitterrel.</dd></div>
             <div><dt>Circuit breaker</dt><dd>N egymást követő hiba után ne hívj, bukj gyorsan egy lehűlési időre. Téged véd az upstreamtől, az upstreamet tőled.</dd></div>
-            <div><dt>Webhookok</dt><dd>Írd alá a törzset (HMAC + időbélyeg), számíts duplikátumokra, válaszolj gyorsan <code>2xx</code>-szel, és aszinkron dolgozd fel.</dd></div>
+            <div><dt>Webhookok</dt><dd>Írd alá a törzset (HMAC (hash-based message authentication code) + időbélyeg), számíts duplikátumokra, válaszolj gyorsan <code>2xx</code>-szel, és aszinkron dolgozd fel.</dd></div>
             <div><dt><code>Location</code> a <code>201</code>-en</dt><dd>Küldd el. A kliensek és a tesztek építenek rá, és ez a leghitelesebb olcsó hipermédia.</dd></div>
             <div><dt>Tömeges műveletek</dt><dd>A <code>207 Multi-Status</code> létezik, de a klienseknek egyszerűbb egy elemenkénti eredménytömb <code>200</code> alatt. Döntsd el, atomi-e a köteg, és dokumentáld.</dd></div>
             <div><dt>Hosszan futó munka</dt><dd><code>202 Accepted</code>, plusz egy job-erőforrás, amit a kliens lekérdez, vagy webhook. Ne tartsd nyitva a kapcsolatot.</dd></div>

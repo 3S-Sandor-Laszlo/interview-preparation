@@ -86,7 +86,7 @@
 
         <article class="topic" id="anatomy">
           <h3>Request and response anatomy</h3>
-          <p>A request is a method, a target, headers, and an optional body. A response is a status line, headers, and an optional body. Everything else — REST, GraphQL, webhooks — is a convention layered on those four parts.</p>
+          <p>A request is a method, a target, headers, and an optional body. A response is a status line, headers, and an optional body. Everything else — REST (Representational State Transfer), GraphQL, webhooks — is a convention layered on those four parts.</p>
           <pre class="code"><code class="language-http">POST /v1/payments HTTP/1.1
 Host: api.example.com
 Content-Type: application/json
@@ -102,7 +102,7 @@ Cache-Control: no-store
 
 {"id": "pay_8127", "status": "succeeded", "amount": 1500}</code></pre>
           <p>Two properties are worth naming out loud because they explain most of the protocol: HTTP is <b>stateless</b> (the server keeps no client context between requests — anything it needs must be in the request), and headers are <b>metadata about the message</b>, not about the resource. HTTP/2 and HTTP/3 change the transport (binary framing, multiplexing, no head-of-line blocking on QUIC) but not this semantic model.</p>
-          <p class="asked"><b>Asked as</b> — “HTTP is stateless, so how do logins work?” The state lives in a cookie or token that the client re-sends on every request; the server may keep a session store, but the <em>protocol</em> still carries no memory between requests. That is exactly why load balancing across FPM workers works at all.</p>
+          <p class="asked"><b>Asked as</b> — “HTTP is stateless, so how do logins work?” The state lives in a cookie or token that the client re-sends on every request; the server may keep a session store, but the <em>protocol</em> still carries no memory between requests. That is exactly why load balancing across FPM (FastCGI Process Manager) workers works at all.</p>
           <details class="quiz" id="quiz-anatomy"
             data-score="Answered {answered} of {total} · {correct} correct"
             data-score-empty="Not started.">
@@ -455,7 +455,7 @@ if ($ifNoneMatch !== '' &amp;&amp; in_array($etag, array_map('trim', explode(','
 
         <article class="topic" id="caching">
           <h3>Cache headers, and who is caching</h3>
-          <p>Three actors: the browser (private cache), a shared cache (CDN, Varnish, reverse proxy) and your application cache. <code>Cache-Control</code> is the instruction set; getting it wrong on an authenticated endpoint leaks one user's data to another.</p>
+          <p>Three actors: the browser (private cache), a shared cache (CDN (content delivery network), Varnish, reverse proxy) and your application cache. <code>Cache-Control</code> is the instruction set; getting it wrong on an authenticated endpoint leaks one user's data to another.</p>
           <div class="table-scroll">
             <table>
               <thead><tr><th>Directive</th><th>Effect</th></tr></thead>
@@ -475,7 +475,7 @@ if ($ifNoneMatch !== '' &amp;&amp; in_array($etag, array_map('trim', explode(','
           <pre class="code"><code class="language-http">Cache-Control: public, max-age=60, s-maxage=600, stale-while-revalidate=30
 Vary: Accept, Accept-Encoding</code></pre>
           <div class="note"><b>The leak.</b> A response to an authenticated request must be <code>private</code> (or <code>no-store</code>), and if a shared cache is in front of it you must <code>Vary: Authorization</code> — or better, mark it uncacheable. “We put a CDN in front and users started seeing each other's dashboards” is a real incident class, and interviewers know it.</div>
-          <p class="asked"><b>Asked as</b> — “Difference between <code>no-cache</code> and <code>no-store</code>?” <code>no-cache</code> stores but always revalidates; <code>no-store</code> forbids writing the response to disk or memory at all. Cache invalidation strategies beyond that: short TTL + ETag revalidation, or surrogate keys / tag-based purging at the CDN.</p>
+          <p class="asked"><b>Asked as</b> — “Difference between <code>no-cache</code> and <code>no-store</code>?” <code>no-cache</code> stores but always revalidates; <code>no-store</code> forbids writing the response to disk or memory at all. Cache invalidation strategies beyond that: short TTL (time to live) + ETag revalidation, or surrogate keys / tag-based purging at the CDN.</p>
           <details class="quiz" id="quiz-caching"
             data-score="Answered {answered} of {total} · {correct} correct"
             data-score-empty="Not started.">
@@ -558,7 +558,7 @@ Vary: Accept, Accept-Encoding</code></pre>
             </div>
           </div>
           <p>Conventions worth stating because reviewers look for consistency: plural collection nouns (<code>/orders</code>), lowercase kebab-case for multi-word segments (<code>/purchase-orders</code>), identifiers in the path, filters in the query string, no trailing slash, no file extensions. Nest at most one level — <code>/users/42/orders</code> is fine, <code>/users/42/orders/8127/lines/3/discounts</code> is a maintenance problem; hang the deep resource off its own root instead.</p>
-          <div class="note"><b>Actions that are not CRUD.</b> Real domains have “cancel”, “publish”, “refund”. Three honest options: model the action as a resource (<code>POST /orders/8127/cancellation</code>), model it as a state transition (<code>PATCH /orders/8127</code> with <code>{"status":"cancelled"}</code>), or admit it is an RPC-style command and keep it in a clearly marked corner. The first is usually best because the action itself gets an identity, a timestamp and an audit trail.</div>
+          <div class="note"><b>Actions that are not CRUD (create, read, update, delete).</b> Real domains have “cancel”, “publish”, “refund”. Three honest options: model the action as a resource (<code>POST /orders/8127/cancellation</code>), model it as a state transition (<code>PATCH /orders/8127</code> with <code>{"status":"cancelled"}</code>), or admit it is an RPC-style (remote procedure call) command and keep it in a clearly marked corner. The first is usually best because the action itself gets an identity, a timestamp and an audit trail.</div>
           <p class="asked"><b>Asked as</b> — “How would you model ‘cancel order’ in REST?” Answer with the resource-as-action option first, then say why: it gives the cancellation an id you can retry against, reference in support tickets and audit — which a <code>PATCH</code> of a status field does not.</p>
           <details class="quiz" id="quiz-resources"
             data-score="Answered {answered} of {total} · {correct} correct"
@@ -774,11 +774,11 @@ GET /v1/orders/8127/lines                 → the collection on its own URI</cod
                 <tr><td class="num">0</td><td>One URI, one verb — HTTP as a tunnel</td><td>SOAP-style <code>POST /api</code></td></tr>
                 <tr><td class="num">1</td><td>Resources get their own URIs</td><td>Still <code>POST</code> for everything</td></tr>
                 <tr><td class="num">2</td><td>Methods and status codes used correctly</td><td><b>Where nearly every real API lives</b></td></tr>
-                <tr><td class="num">3</td><td>Hypermedia controls in the representation</td><td>HAL, JSON:API links, <code>Link</code> headers</td></tr>
+                <tr><td class="num">3</td><td>Hypermedia controls in the representation</td><td>HAL (Hypertext Application Language), JSON:API links, <code>Link</code> headers</td></tr>
               </tbody>
             </table>
           </div>
-          <p>Level 3 means the client discovers what it can do next from links in the response rather than from hardcoded URI templates. It is Fielding's actual definition of REST — an API without hypermedia is, strictly, not REST. It also rarely pays off between a backend and its own SPA, where the client is deployed with knowledge of the API anyway. Where it does pay: long-lived public APIs, state machines (which transitions are legal right now), and paging.</p>
+          <p>Level 3 is HATEOAS (Hypermedia as the Engine of Application State): the client discovers what it can do next from links in the response rather than from hardcoded URI templates. It is Fielding's actual definition of REST — an API without hypermedia is, strictly, not REST. It also rarely pays off between a backend and its own SPA (single-page application), where the client is deployed with knowledge of the API anyway. Where it does pay: long-lived public APIs, state machines (which transitions are legal right now), and paging.</p>
           <pre class="code"><code class="language-json">{
   "id": "ord_8127",
   "status": "paid",
@@ -1045,7 +1045,7 @@ LUA;
 Retry-After: 12
 RateLimit: limit=100, remaining=0, reset=12
 RateLimit-Policy: 100;w=60</code></pre>
-          <p>Limit per credential (API key, user, tenant) rather than per IP where you can — NAT puts a whole office behind one address. Always tell the client what happened: <code>Retry-After</code> at minimum, the <code>RateLimit</code> header family if you want well-behaved clients. And expect the follow-up about the client side: exponential backoff <em>with jitter</em>, because synchronised retries are how a limited API becomes a down API.</p>
+          <p>Limit per credential (API key, user, tenant) rather than per IP where you can — NAT (network address translation) puts a whole office behind one address. Always tell the client what happened: <code>Retry-After</code> at minimum, the <code>RateLimit</code> header family if you want well-behaved clients. And expect the follow-up about the client side: exponential backoff <em>with jitter</em>, because synchronised retries are how a limited API becomes a down API.</p>
           <p class="asked"><b>Asked as</b> — “How would you rate limit an API?” Token bucket in Redis, atomic via Lua, keyed per API key, <code>429</code> with <code>Retry-After</code>. Mention the fixed-window boundary burst — knowing why the naive counter is wrong is the actual signal.</p>
           <details class="quiz" id="quiz-ratelimit"
             data-score="Answered {answered} of {total} · {correct} correct"
@@ -1264,7 +1264,7 @@ Link: &lt;https://api.example.com/docs/v2-migration&gt;; rel="deprecation"; type
               </ul>
             </div>
           </div>
-          <p>The counterpart on the client side is Postel-flavoured but sharper: be a <b>tolerant reader</b>. Ignore unknown fields instead of failing, do not depend on key order, do not assume the set of enum values is closed, and treat any unexpected 5xx as retryable rather than fatal. In PHP that means mapping JSON into DTOs field by field rather than asserting the whole shape, and having a default branch on every <code>match</code> over an external enum.</p>
+          <p>The counterpart on the client side is Postel-flavoured but sharper: be a <b>tolerant reader</b>. Ignore unknown fields instead of failing, do not depend on key order, do not assume the set of enum values is closed, and treat any unexpected 5xx as retryable rather than fatal. In PHP that means mapping JSON into DTOs (data transfer objects) field by field rather than asserting the whole shape, and having a default branch on every <code>match</code> over an external enum.</p>
           <div class="note"><b>Contract testing.</b> The credible way to know you have not broken anyone: an OpenAPI document in version control, a diff tool in CI that fails the build on a breaking change, and consumer-driven contract tests for internal consumers. “We would notice in code review” is not an answer at senior level.</div>
           <p class="asked"><b>Asked as</b> — “Is adding a field to a response a breaking change?” Usually no — unless a client validates against a closed schema, which is exactly why you publish a schema that allows additional properties and say so in the docs.</p>
           <details class="quiz" id="quiz-compat"
@@ -1408,13 +1408,13 @@ Link: &lt;https://api.example.com/docs/v2-migration&gt;; rel="deprecation"; type
             <div><dt><code>PUT</code> vs <code>POST</code> for create</dt><dd><code>POST</code> when the server assigns the id, <code>PUT</code> when the client does and the URI is known up front.</dd></div>
             <div><dt>Body on <code>GET</code></dt><dd>Not forbidden outright any more, but proxies, caches and clients drop it. Never design one.</dd></div>
             <div><dt>Why <code>204</code> has no body</dt><dd>The spec says so — anything you write there may be discarded silently by intermediaries.</dd></div>
-            <div><dt>CORS preflight</dt><dd>An <code>OPTIONS</code> request the browser sends before a non-simple cross-origin call. CORS is a browser policy, not server security.</dd></div>
+            <div><dt>CORS (cross-origin resource sharing) preflight</dt><dd>An <code>OPTIONS</code> request the browser sends before a non-simple cross-origin call. CORS is a browser policy, not server security.</dd></div>
             <div><dt><code>Authorization</code> and caching</dt><dd>Responses to authenticated requests are not shared-cacheable unless you explicitly opt in. Set <code>private</code> or <code>no-store</code>.</dd></div>
             <div><dt>HTTP/2 does not change semantics</dt><dd>Same methods, headers and status codes; different framing. Domain sharding and sprite sheets became anti-patterns.</dd></div>
             <div><dt>Timeouts</dt><dd>Every outbound call needs a connect timeout and a total timeout. A missing timeout is how one slow upstream exhausts your FPM pool.</dd></div>
             <div><dt>Retry only what is safe</dt><dd>Idempotent methods, or anything carrying an idempotency key. Always with jitter.</dd></div>
             <div><dt>Circuit breaker</dt><dd>After N consecutive failures, stop calling and fail fast for a cooldown. Protects you from an upstream and the upstream from you.</dd></div>
-            <div><dt>Webhooks</dt><dd>Sign the payload (HMAC + timestamp), expect duplicates, respond <code>2xx</code> fast and process asynchronously.</dd></div>
+            <div><dt>Webhooks</dt><dd>Sign the payload (HMAC (hash-based message authentication code) + timestamp), expect duplicates, respond <code>2xx</code> fast and process asynchronously.</dd></div>
             <div><dt><code>Location</code> on <code>201</code></dt><dd>Send it. Clients and test suites rely on it, and it is the cheapest form of hypermedia.</dd></div>
             <div><dt>Bulk operations</dt><dd><code>207 Multi-Status</code> exists, but a per-item result array under <code>200</code> is easier for clients. Decide whether the batch is atomic and document it.</dd></div>
             <div><dt>Long-running work</dt><dd><code>202 Accepted</code> plus a job resource the client polls, or a webhook. Do not hold the connection open.</dd></div>

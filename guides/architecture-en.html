@@ -89,7 +89,7 @@
                 <tr><td>Classic layered (n-tier)</td><td>Presentation → business → data</td><td>Nothing stops the top layer reaching the bottom; dependencies flow down to the database</td></tr>
                 <tr><td>Hexagonal (ports &amp; adapters)</td><td>Inside vs outside</td><td>Every external interaction is an explicit port with swappable adapters</td></tr>
                 <tr><td>Onion</td><td>Concentric rings around the domain model</td><td>Names the rings and forbids inward-facing knowledge of outer ones</td></tr>
-                <tr><td>Clean</td><td>Use cases at the centre</td><td>The dependency rule stated as a rule, plus explicit boundary DTOs</td></tr>
+                <tr><td>Clean</td><td>Use cases at the centre</td><td>The dependency rule stated as a rule, plus explicit boundary DTOs (data transfer objects)</td></tr>
               </tbody>
             </table>
           </div>
@@ -377,7 +377,7 @@ final class InMemoryGateway implements PaymentGateway     // lives in tests/
     public function lines(): array { return $this-&gt;lines; }
 }</code></pre>
           <p>The aggregate boundary is a <b>consistency boundary</b>: everything inside is saved in one transaction and is always valid; anything outside is reached by id and becomes consistent eventually. That gives you the sizing heuristic — keep aggregates small, reference other aggregates by id rather than by object, and if a rule spans two aggregates, either they are one aggregate or the rule is eventually consistent. An <code>Order</code> holding a whole <code>Customer</code> object is the classic oversized aggregate.</p>
-          <div class="note"><b>Anemic domain model.</b> Entities that are property bags with getters and setters, and all behaviour in services. Fowler named it an anti-pattern because it takes the cost of an object model and returns none of its benefits. It is also the default shape of most framework tutorials, so expect to be asked whether you would keep it — “yes for a CRUD admin panel, no for the pricing engine” is a better answer than dogma in either direction.</div>
+          <div class="note"><b>Anemic domain model.</b> Entities that are property bags with getters and setters, and all behaviour in services. Fowler named it an anti-pattern because it takes the cost of an object model and returns none of its benefits. It is also the default shape of most framework tutorials, so expect to be asked whether you would keep it — “yes for a CRUD (create, read, update, delete) admin panel, no for the pricing engine” is a better answer than dogma in either direction.</div>
           <p class="asked"><b>Asked as</b> — “How do you decide where the aggregate boundary goes?” By transactional invariant: what must be true at every commit. If two things can be briefly inconsistent without breaking the business, they belong to different aggregates and talk through events.</p>
           <details class="quiz" id="quiz-domain-model"
             data-score="Answered {answered} of {total} · {correct} correct"
@@ -567,7 +567,7 @@ final class OrderSummaryQuery
         // ... execute, map rows to readonly DTOs.
     }
 }</code></pre>
-          <p>The cheapest useful version of CQRS is exactly this: keep Doctrine for writes, drop to SQL for reads, and stop trying to make one entity graph serve both. No extra infrastructure, most of the benefit. The expensive version — a separate read store kept up to date by events — buys independent scaling and query shapes the write store cannot serve, and costs you eventual consistency plus a projection to maintain. Introduce it per use case, never wholesale.</p>
+          <p>The cheapest useful version of CQRS (Command Query Responsibility Segregation) is exactly this: keep Doctrine for writes, drop to SQL for reads, and stop trying to make one entity graph serve both. No extra infrastructure, most of the benefit. The expensive version — a separate read store kept up to date by events — buys independent scaling and query shapes the write store cannot serve, and costs you eventual consistency plus a projection to maintain. Introduce it per use case, never wholesale.</p>
           <div class="note"><b>Read-your-own-writes.</b> The moment the read model is asynchronous, a user who saves and is redirected to a list may not see their change. Handle it deliberately: read from the write model immediately after a command, return the created resource in the response, or make the UI optimistic. “The projection is usually fast” is not a design.</div>
           <p class="asked"><b>Asked as</b> — “What is CQRS and when would you use it?” Separate models for reads and writes; use it when the two have genuinely different shapes or load profiles. Say explicitly that it does not imply two databases — that distinction is what the question is usually checking.</p>
           <details class="quiz" id="quiz-cqrs"
@@ -837,7 +837,7 @@ $this-&gt;transaction-&gt;wrap(function () use ($order) {
                 <li>Event schema versioning, forever — you cannot migrate the past away</li>
                 <li>Snapshots once streams get long</li>
                 <li>Eventual consistency in every read</li>
-                <li>GDPR erasure against an append-only store (crypto-shredding)</li>
+                <li>GDPR (General Data Protection Regulation) erasure against an append-only store (crypto-shredding)</li>
                 <li>A team that has to learn it before they can debug it</li>
               </ul>
             </div>
@@ -1062,7 +1062,7 @@ public function testDomainDoesNotDependOnInfrastructure(): void
             <table>
               <thead><tr><th>Concept</th><th>Symfony</th><th>Laravel</th><th>Standard</th></tr></thead>
               <tbody>
-                <tr><td>Wiring / DI</td><td>Service container, autowiring, compiled</td><td>Service container, service providers</td><td>PSR-11</td></tr>
+                <tr><td>Wiring / DI (dependency injection)</td><td>Service container, autowiring, compiled</td><td>Service container, service providers</td><td>PSR-11</td></tr>
                 <tr><td>Request pipeline</td><td>Kernel events, or PSR-15 middleware</td><td>Middleware stack</td><td>PSR-15</td></tr>
                 <tr><td>Events</td><td>EventDispatcher</td><td>Events &amp; listeners</td><td>PSR-14</td></tr>
                 <tr><td>Async work</td><td>Messenger (bus + transports)</td><td>Queues &amp; jobs</td><td>—</td></tr>
@@ -1130,7 +1130,7 @@ public function testDomainDoesNotDependOnInfrastructure(): void
             <table>
               <thead><tr><th>Layer</th><th>Test kind</th><th>Doubles</th><th>Speed</th></tr></thead>
               <tbody>
-                <tr><td>Domain (entities, VOs)</td><td>Plain unit tests, no container</td><td>None — construct real objects</td><td>Milliseconds; run thousands</td></tr>
+                <tr><td>Domain (entities, VOs (value objects))</td><td>Plain unit tests, no container</td><td>None — construct real objects</td><td>Milliseconds; run thousands</td></tr>
                 <tr><td>Application (use cases)</td><td>Use-case tests through the public API</td><td>In-memory adapters for ports</td><td>Fast</td></tr>
                 <tr><td>Infrastructure adapters</td><td>Integration tests against the real thing</td><td>Real database in Docker, recorded HTTP</td><td>Slow; keep the count low</td></tr>
                 <tr><td>Presentation</td><td>A thin layer of end-to-end tests</td><td>The whole stack</td><td>Slowest; only critical paths</td></tr>
@@ -1212,7 +1212,7 @@ public function testDomainDoesNotDependOnInfrastructure(): void
 #   - One more worker to run, monitor and alert on (lag &gt; 60s pages).
 # Alternatives: 2PC (rejected: blocking, unsupported by our broker),
 #           CDC on the binlog (rejected for now: ops cost, revisit at scale).</code></pre>
-          <p>An ADR is one page in the repository, immutable once accepted, superseded rather than edited. Its real value is six months later when someone asks why — and the reason a candidate who mentions ADRs stands out is that it signals they expect to be held to decisions rather than to make them and move on.</p>
+          <p>An ADR (Architecture Decision Record) is one page in the repository, immutable once accepted, superseded rather than edited. Its real value is six months later when someone asks why — and the reason a candidate who mentions ADRs stands out is that it signals they expect to be held to decisions rather than to make them and move on.</p>
           <p class="asked"><b>Asked as</b> — “Tell me about an architectural decision you regret.” Answer with a real one, the signal that revealed it, and what you changed. Naming the reversal cost you failed to consider beats any amount of pattern vocabulary.</p>
           <details class="quiz" id="quiz-tradeoffs"
             data-score="Answered {answered} of {total} · {correct} correct"
@@ -1290,7 +1290,7 @@ final class RoutingInvoices implements Invoices
     }
 }</code></pre>
           <p>Two supporting ideas do most of the work. A <b>seam</b> is a place where behaviour can be changed without editing the code around it — in PHP, an interface plus constructor injection; finding or creating seams is the first step in any legacy migration. An <b>anti-corruption layer</b> is a translation boundary that stops the legacy model leaking into the new one: the new context speaks its own language and converts at the edge. Without it, the rewrite inherits the shape it was meant to escape.</p>
-          <p class="asked"><b>Asked as</b> — “How would you modernise a ten-year-old PHP application?” Never a big-bang rewrite. Characterisation tests to pin current behaviour, a façade at the boundary, extract one capability with an ACL, migrate traffic behind a flag with shadow comparison, delete the old path. Then: pick the capability with the highest change rate first, because that is where the payback is.</p>
+          <p class="asked"><b>Asked as</b> — “How would you modernise a ten-year-old PHP application?” Never a big-bang rewrite. Characterisation tests to pin current behaviour, a façade at the boundary, extract one capability with an ACL (anti-corruption layer), migrate traffic behind a flag with shadow comparison, delete the old path. Then: pick the capability with the highest change rate first, because that is where the payback is.</p>
           <details class="quiz" id="quiz-migration"
             data-score="Answered {answered} of {total} · {correct} correct"
             data-score-empty="Not started.">
@@ -1346,16 +1346,16 @@ final class RoutingInvoices implements Invoices
           <dl class="rapid">
             <div><dt>Conway's law</dt><dd>System structure mirrors communication structure. The inverse manoeuvre — reshape teams to get the architecture — is a real tactic.</dd></div>
             <div><dt>Coupling vs cohesion</dt><dd>Low coupling between modules, high cohesion within one. Every pattern here is a way to buy that.</dd></div>
-            <div><dt>CAP, honestly</dt><dd>Partitions happen, so the real choice is consistency or availability during one. “CP or AP” is a per-operation decision, not a per-database badge.</dd></div>
+            <div><dt>CAP (Consistency, Availability, Partition tolerance), honestly</dt><dd>Partitions happen, so the real choice is consistency or availability during one. “CP or AP” is a per-operation decision, not a per-database badge.</dd></div>
             <div><dt>Idempotency everywhere</dt><dd>At-least-once delivery is the default for every broker worth using. Design the consumer accordingly.</dd></div>
             <div><dt>Two-phase commit</dt><dd>Real, and rarely worth it: blocking, needs participant support, one slow node stalls the lot.</dd></div>
             <div><dt>Shared database between services</dt><dd>The classic distributed monolith: independent deploys, coupled schema. Worse than a monolith.</dd></div>
             <div><dt>Repository returns aggregates</dt><dd>Not arrays of rows, not query builders. If you need rows, that is the read side.</dd></div>
             <div><dt>Anemic model</dt><dd>Getters, setters, logic in services. Sometimes exactly right — say when, rather than reciting the anti-pattern.</dd></div>
             <div><dt>DTO vs value object</dt><dd>A DTO is a transport shape with no behaviour; a VO is a domain concept with invariants and equality.</dd></div>
-            <div><dt>Hexagonal ≠ folders</dt><dd>Renaming directories to <code>Domain</code>/<code>Infrastructure</code> while the entity still extends the ORM base class changes nothing.</dd></div>
+            <div><dt>Hexagonal ≠ folders</dt><dd>Renaming directories to <code>Domain</code>/<code>Infrastructure</code> while the entity still extends the ORM (object-relational mapper) base class changes nothing.</dd></div>
             <div><dt>Eventual consistency is a product decision</dt><dd>Someone has to accept that a screen can be stale for two seconds. Get that agreed, not assumed.</dd></div>
-            <div><dt>YAGNI vs the dependency rule</dt><dd>The rule is cheap to follow from day one and expensive to retrofit; a message bus is the opposite. Adopt accordingly.</dd></div>
+            <div><dt>YAGNI (You Aren’t Gonna Need It) vs the dependency rule</dt><dd>The rule is cheap to follow from day one and expensive to retrofit; a message bus is the opposite. Adopt accordingly.</dd></div>
             <div><dt>Distributed tracing</dt><dd>Once flows span services or queues, a correlation id on every message is not optional.</dd></div>
             <div><dt>The best answer to “which pattern”</dt><dd>“What is the constraint?” Architecture questions with no context are testing whether you ask.</dd></div>
           </dl>

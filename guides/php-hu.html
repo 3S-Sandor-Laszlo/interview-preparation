@@ -697,7 +697,7 @@ Timeout::fromMinutes(2);    // Timeout(30) — a static:: elérte a felüldefini
 Timeout::zero();            // Timeout(0)  — örökölt, mégis a helyes osztály</code></pre>
           <p>Ha <code>new self($seconds)</code>-t vagy <code>self::fromSeconds(...)</code>-t írsz helyette, mindkét leszármazott-hívás visszaesik <code>Duration</code>-re: a gyártómetódus csendben rossz típust ad vissza, a korlátozás pedig sosem fut le. A <code>static</code> visszatérési típus ugyanezt az ígéretet viszi be a típusrendszerbe, így a <code>Timeout::fromMinutes()</code> típusa <code>Timeout</code> lesz, szűkítő ellenőrzés nélkül.</p>
           <p class="asked"><b>Így kérdezik</b> — „Hogyan csinálsz konstruktor-túlterhelést PHP-ban?” Sehogy. A konstruktort korlátozott láthatóságúvá teszed, és névvel ellátott statikus gyártómetódusokat adsz hozzá — <code>fromString()</code>, <code>fromArray()</code>, <code>zero()</code> —, és egyúttal ide kerül a validáció és a normalizálás is.</p>
-          <div class="note"><b>A statikus tagok globális állapotot jelentenek.</b> Megkerülik a DI-t, tesztben nehezen helyettesíthetők, és láthatatlanná teszik a függőségeket a szignatúrában. Tiszta függvényekhez és névvel ellátott konstruktorokhoz elfogadható; bármihez, ami I/O-t érint, code smell.</div>
+          <div class="note"><b>A statikus tagok globális állapotot jelentenek.</b> Megkerülik a DI-t (dependency injection), tesztben nehezen helyettesíthetők, és láthatatlanná teszik a függőségeket a szignatúrában. Tiszta függvényekhez és névvel ellátott konstruktorokhoz elfogadható; bármihez, ami I/O-t érint, code smell.</div>
           <details class="quiz" id="quiz-static"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
             data-score-empty="Még nincs elkezdve.">
@@ -1040,7 +1040,7 @@ OrderStatus::Paid->value;        // 'paid'</code></pre>
 
         <article class="topic" id="types">
           <h3>A típusrendszer, variancia, <code>never</code></h3>
-          <p>Nullozható (<code>?T</code>), unió (<code>A|B</code>), metszet (<code>A&amp;B</code>, PHP 8.1), plusz a speciális típusok: <code>void</code>, <code>never</code>, <code>static</code>, <code>self</code>, <code>mixed</code>, <code>iterable</code>. A PHP 8.2 hozza a DNF-típusokat: <code>(A&amp;B)|null</code>.</p>
+          <p>Nullozható (<code>?T</code>), unió (<code>A|B</code>), metszet (<code>A&amp;B</code>, PHP 8.1), plusz a speciális típusok: <code>void</code>, <code>never</code>, <code>static</code>, <code>self</code>, <code>mixed</code>, <code>iterable</code>. A PHP 8.2 hozza a DNF-típusokat (disjunctive normal form): <code>(A&amp;B)|null</code>.</p>
           <pre class="code"><code class="language-php">declare(strict_types=1);
 
 function shutdown(string $reason): never   // sosem tér vissza: dob vagy kilép
@@ -1427,7 +1427,7 @@ Closure::bind($fn, $obj, Account::class);      // $this és hatókör újraköt�
 
         <article class="topic" id="exceptions">
           <h3>A kivételhierarchia</h3>
-          <p>Minden elkapható dolog a <code>Throwable</code>-t valósítja meg. Alatta két ág van: az <code>Error</code> (motorszintű: <code>TypeError</code>, <code>ValueError</code>, <code>ArgumentCountError</code>, <code>DivisionByZeroError</code>) és az <code>Exception</code> (alkalmazásszintű, az SPL <code>RuntimeException</code> és <code>LogicException</code> gyökerekkel).</p>
+          <p>Minden elkapható dolog a <code>Throwable</code>-t valósítja meg. Alatta két ág van: az <code>Error</code> (motorszintű: <code>TypeError</code>, <code>ValueError</code>, <code>ArgumentCountError</code>, <code>DivisionByZeroError</code>) és az <code>Exception</code> (alkalmazásszintű, az SPL (Standard PHP Library) <code>RuntimeException</code> és <code>LogicException</code> gyökerekkel).</p>
           <pre class="code"><code class="language-php">final class PaymentDeclined extends RuntimeException
 {
     public function __construct(
@@ -1669,7 +1669,7 @@ foreach (readRows('export.csv') as $row) { /* … */ }</code></pre>
 
         <article class="topic" id="attributes">
           <h3>Attribútumok és reflexió</h3>
-          <p>Az attribútumok (PHP 8) strukturált metaadatok, amelyek beépülnek az osztályba, és reflexióval olvashatók vissza — ez a mechanizmus áll a modern routing, ORM-leképezés és DI-autowiring mögött.</p>
+          <p>Az attribútumok (PHP 8) strukturált metaadatok, amelyek beépülnek az osztályba, és reflexióval olvashatók vissza — ez a mechanizmus áll a modern routing, ORM-leképezés (object-relational mapper) és DI-autowiring mögött.</p>
           <pre class="code"><code class="language-php">#[Attribute(Attribute::TARGET_METHOD)]
 final class Route
 {
@@ -1748,7 +1748,7 @@ foreach ($rc-&gt;getMethods() as $m) {
           <ul class="tight">
             <li><code>==</code> — azonos osztály <em>és</em> minden tulajdonság lazán egyenlő.</li>
             <li><code>===</code> — pontosan ugyanaz a példány.</li>
-            <li><code>spl_object_id()</code> / <code>spl_object_hash()</code> — stabil azonosító az objektum élettartamára (az id-k a GC után újrahasznosulnak).</li>
+            <li><code>spl_object_id()</code> / <code>spl_object_hash()</code> — stabil azonosító az objektum élettartamára (az id-k a GC (garbage collection) után újrahasznosulnak).</li>
             <li>Az objektumok <b>hivatkozás (handle)</b> szerint adódnak át, nem referenciaként és nem mélymásolatként: a hívott fél módosíthatja ugyanazt az objektumot, de a <code>$param</code> újraértékadása nem hat a hívó változójára.</li>
           </ul>
           <pre class="code"><code class="language-php">$a = new Money(100);
@@ -1884,7 +1884,7 @@ final class HydrationCache
         $this-&gt;meta[$entity] = $data;     // nincs szivárgás: az $entity elengedésével ez is megy
     }
 }</code></pre>
-          <div class="note"><b>Hol fáj ez igazán.</b> A klasszikus kérésenkénti folyamatmodellben (mod_php, PHP-FPM) az egész aréna lebomlik a kérés végén, így a szivárgás ritkán jelentkezik. <b>Hosszan futó folyamatokban</b> — queue worker, Swoole, RoadRunner, FrankenPHP, adatfolyamot fogyasztó démon — ugyanaz a ciklus addig halmozódik, míg a <code>memory_limit</code> le nem lövi a workert. Ezért indítja újra a Laravel Horizon és a Symfony Messenger a workereket N feladat után.</div>
+          <div class="note"><b>Hol fáj ez igazán.</b> A klasszikus kérésenkénti folyamatmodellben (mod_php, PHP-FPM (FastCGI Process Manager)) az egész aréna lebomlik a kérés végén, így a szivárgás ritkán jelentkezik. <b>Hosszan futó folyamatokban</b> — queue worker, Swoole, RoadRunner, FrankenPHP, adatfolyamot fogyasztó démon — ugyanaz a ciklus addig halmozódik, míg a <code>memory_limit</code> le nem lövi a workert. Ezért indítja újra a Laravel Horizon és a Symfony Messenger a workereket N feladat után.</div>
           <p class="asked"><b>Így kérdezik</b> — „Hogyan kezeli a PHP a memóriát?” A teljes válasz három ütemben: a referenciaszámlálás mohón és determinisztikusan szabadít fel; a mark-and-sweep gyűjtő kizárólag a hivatkozási ciklusokat kezeli; a <code>WeakReference</code>/<code>WeakMap</code> pedig lehetővé teszi, hogy eleve ne hozz létre ciklust. Ha megemlíted a copy-on-write-ot is (a tömbök és stringek osztoznak a tárolón, amíg valaki nem ír beléjük — ezért olcsó egy nagy tömb átadása), az általában lezárja a kérdést.</p>
           <details class="quiz" id="quiz-gc"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
@@ -2186,8 +2186,8 @@ final class CachingUserRepository implements UserRepository
                 <li>Egy osztály = egy tábla; a példány egy sor</li>
                 <li><code>$user-&gt;save()</code>, <code>User::find(1)</code></li>
                 <li>Eloquent (Laravel), Yii, CakePHP, Rails</li>
-                <li>Gyorsan fejleszthető, CRUD-ra jól olvasható</li>
-                <li>A modell domain- <em>és</em> perzisztencia-felelősséget is visel — tervezetten SRP-sértés</li>
+                <li>Gyorsan fejleszthető, CRUD-ra (create, read, update, delete) jól olvasható</li>
+                <li>A modell domain- <em>és</em> perzisztencia-felelősséget is visel — tervezetten SRP-sértés (Single Responsibility Principle)</li>
                 <li>A unit tesztekhez adatbázis vagy sok mockolás kell</li>
                 <li>A domain alakját a séma húzza magához</li>
               </ul>
@@ -2276,7 +2276,7 @@ final class User extends ActiveRecord
 {
     protected static string $table = 'users';
 }</code></pre>
-          <div class="note"><b>A hibamód, amit nevesíteni kell.</b> Az Active Record N+1 lekérdezési problémája: ha rekordokon iterálsz, és a cikluson belül nyúlsz egy kapcsolathoz, soronként egy lekérdezés indul. A megoldás az eager loading (<code>User::with('orders')</code> Eloquentben, <code>JOIN FETCH</code> DQL Doctrine-ban). Ezt folyamatosan kérdezik, és mindkét mintában ugyanaz a csapda — a Data Mapper csak láthatóbbá teszi a lusta betöltő proxyt.</div>
+          <div class="note"><b>A hibamód, amit nevesíteni kell.</b> Az Active Record N+1 lekérdezési problémája: ha rekordokon iterálsz, és a cikluson belül nyúlsz egy kapcsolathoz, soronként egy lekérdezés indul. A megoldás az eager loading (<code>User::with('orders')</code> Eloquentben, <code>JOIN FETCH</code> DQL (Doctrine Query Language) Doctrine-ban). Ezt folyamatosan kérdezik, és mindkét mintában ugyanaz a csapda — a Data Mapper csak láthatóbbá teszi a lusta betöltő proxyt.</div>
           <p class="asked"><b>Így kérdezik</b> — „Melyiket választanád?” Active Recordot CRUD-alakú alkalmazásokhoz és kis csapatoknál, ahol a szállítási sebesség számít. Data Mappert akkor, ha a domainben valódi viselkedés és invariánsok vannak, és a séma nem tükrözi őket — vagy ha az üzleti logikát adatbázis nélkül akarod tesztelni. A senior válasz megnevezi az árat is, amit így vagy úgy megfizetsz, ahelyett hogy az egyiket univerzálisan jobbnak kiáltaná ki.</p>
           <details class="quiz" id="quiz-active-record"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
@@ -2473,7 +2473,7 @@ final class ByDueDate extends SplMinHeap
                 <tr><td class="num">10</td><td class="psr-title">Security Reporting Process</td><td><span class="pill dead">Elvetett</span></td><td>—</td></tr>
                 <tr><td class="num">11</td><td class="psr-title">Container Interface</td><td><span class="pill ok">Elfogadott</span></td><td><code>get()</code> / <code>has()</code> DI-konténerekhez</td></tr>
                 <tr><td class="num">12</td><td class="psr-title">Extended Coding Style Guide</td><td><span class="pill ok">Elfogadott</span></td><td>A PSR-2 modernizálva; ma a PER-CS terjeszti ki</td></tr>
-                <tr><td class="num">13</td><td class="psr-title">Hypermedia Links</td><td><span class="pill ok">Elfogadott</span></td><td>Link-objektumok HAL/JSON-API stílusú API-khoz</td></tr>
+                <tr><td class="num">13</td><td class="psr-title">Hypermedia Links</td><td><span class="pill ok">Elfogadott</span></td><td>Link-objektumok HAL (Hypertext Application Language)/JSON-API stílusú API-khoz</td></tr>
                 <tr><td class="num">14</td><td class="psr-title">Event Dispatcher</td><td><span class="pill ok">Elfogadott</span></td><td>Diszpécser + listener provider</td></tr>
                 <tr><td class="num">15</td><td class="psr-title">HTTP Handlers</td><td><span class="pill ok">Elfogadott</span></td><td>Middleware és kéréskezelők</td></tr>
                 <tr><td class="num">16</td><td class="psr-title">Simple Cache</td><td><span class="pill ok">Elfogadott</span></td><td>get/set/delete kulcs-érték cache</td></tr>
@@ -2539,7 +2539,7 @@ final class ByDueDate extends SplMinHeap
 
         <article class="topic" id="psr-style">
           <h3>PSR-1, PSR-12 és a PER Coding Style</h3>
-          <p><b>PSR-1 (alap)</b> — a fájlok csak <code>&lt;?php</code> vagy <code>&lt;?=</code> nyitótagot használnak, UTF-8 BOM nélkül; egy fájl vagy <em>deklarál</em> szimbólumokat, vagy <em>mellékhatása</em> van, de sosem mindkettő; az osztálynevek <code>StudlyCaps</code>, a konstansok <code>UPPER_SNAKE</code>, a metódusok <code>camelCase</code> alakúak.</p>
+          <p><b>PSR-1 (alap)</b> — a fájlok csak <code>&lt;?php</code> vagy <code>&lt;?=</code> nyitótagot használnak, UTF-8 BOM (byte order mark) nélkül; egy fájl vagy <em>deklarál</em> szimbólumokat, vagy <em>mellékhatása</em> van, de sosem mindkettő; az osztálynevek <code>StudlyCaps</code>, a konstansok <code>UPPER_SNAKE</code>, a metódusok <code>camelCase</code> alakúak.</p>
           <p><b>PSR-12 (kiterjesztett)</b> — 4 szóköz (soha tabulátor), 120 karakteres puha sorhossz, egy üres sor a namespace-blokk és a <code>use</code>-blokk után, kapcsos zárójel külön sorban osztálynál és metódusnál, de azonos sorban vezérlési szerkezeteknél, kötelező láthatóság minden tulajdonságon, metóduson és konstanson, rögzített <code>declare(strict_types=1)</code> pozíció.</p>
           <p><b>PER Coding Style</b> — a FIG újabb, verziózott utódja (jelenleg <b>PER-CS 3.1</b>). „Kiterjeszti, kibővíti és leváltja a PSR-12-t”, és lefedi azt a szintaxist, ami a PSR-12 után jött: enumok, readonly, attribútumok, konstruktoros promóció, first-class callable-ök. A PSR-12 formálisan elfogadott marad; új projekt viszont a PER-CS-t célozza.</p>
           <pre class="code"><code class="language-php">&lt;?php
@@ -2783,7 +2783,7 @@ final class PaymentProcessor
               <ul>
                 <li>Egyetlen <code>CacheInterface</code></li>
                 <li><code>get/set/delete/has</code>, plusz a <code>*Multiple</code> párjaik</li>
-                <li>Alapérték tévesztéskor, TTL hívásonként</li>
+                <li>Alapérték tévesztéskor, TTL (time to live) hívásonként</li>
                 <li>Az esetek 90%-ában ez kell</li>
               </ul>
             </div>
@@ -3275,7 +3275,7 @@ if (!password_verify($plain, $user-&gt;passwordHash)) {
 if (password_needs_rehash($user-&gt;passwordHash, PASSWORD_DEFAULT)) {
     $repo-&gt;updateHash($user, password_hash($plain, PASSWORD_DEFAULT));
 }</code></pre>
-          <p>A kimenet már tartalmazza a sót és a paramétereket, ezért nincs külön só-oszlop. A <code>password_verify()</code> időzítésbiztos; amit magad hasonlítasz össze — API-kulcs, jelszó-visszaállító token, HMAC-aláírás —, ahhoz <code>hash_equals()</code> kell, soha nem <code>===</code>.</p>
+          <p>A kimenet már tartalmazza a sót és a paramétereket, ezért nincs külön só-oszlop. A <code>password_verify()</code> időzítésbiztos; amit magad hasonlítasz össze — API-kulcs, jelszó-visszaállító token, HMAC-aláírás (hash-based message authentication code) —, ahhoz <code>hash_equals()</code> kell, soha nem <code>===</code>.</p>
           <pre class="code"><code class="language-php">$token = bin2hex(random_bytes(32));    // CSPRNG — titkokhoz alkalmas
 $n     = random_int(1, 100);           // CSPRNG egész
 
@@ -3346,8 +3346,8 @@ echo '&lt;a href="/search?q=' . rawurlencode($q) . '"&gt;';
 // &lt;script&gt; blokkon belül — JSON, nem htmlspecialchars
 echo '&lt;script&gt;const cfg = ' . json_encode($cfg, JSON_HEX_TAG | JSON_HEX_AMP
     | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_THROW_ON_ERROR) . ';&lt;/script&gt;';</code></pre>
-          <p>Mindig add meg az <code>ENT_QUOTES</code>-t (az aposztróf attribútumban számít) és a karakterkészletet. A gyakorlatban egy automatikusan escapelő sablonmotor — Twig, Blade — az igazi válasz, plusz egy Content-Security-Policy fejléc, hogy a beinjektált szkriptnek ne legyen hol futnia. Jegyezd meg: a <code>strip_tags()</code> nem XSS-védelem; felhasználói rich texthez fehérlistás sanitizáló, például HTML Purifier kell.</p>
-          <p>A <b>CSRF</b> más támadás: a böngésző elküldi az áldozat sütijeit egy olyan kéréssel, amit az áldozat nem szándékozott. Sütikkel ezt nem lehet megkülönböztetni, ezért kell egy érték, amit a támadó oldala nem tud kiolvasni.</p>
+          <p>Mindig add meg az <code>ENT_QUOTES</code>-t (az aposztróf attribútumban számít) és a karakterkészletet. A gyakorlatban egy automatikusan escapelő sablonmotor — Twig, Blade — az igazi válasz, plusz egy Content-Security-Policy fejléc, hogy a beinjektált szkriptnek ne legyen hol futnia. Jegyezd meg: a <code>strip_tags()</code> nem XSS-védelem (cross-site scripting); felhasználói rich texthez fehérlistás sanitizáló, például HTML Purifier kell.</p>
+          <p>A <b>CSRF (cross-site request forgery)</b> más támadás: a böngésző elküldi az áldozat sütijeit egy olyan kéréssel, amit az áldozat nem szándékozott. Sütikkel ezt nem lehet megkülönböztetni, ezért kell egy érték, amit a támadó oldala nem tud kiolvasni.</p>
           <pre class="code"><code class="language-php">// Munkamenetenként egyszer generáljuk
 $_SESSION['csrf'] ??= bin2hex(random_bytes(32));
 

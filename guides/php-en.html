@@ -697,7 +697,7 @@ Timeout::fromMinutes(2);    // Timeout(30) — static:: reached the override
 Timeout::zero();            // Timeout(0)  — inherited, still the right class</code></pre>
           <p>Write <code>new self($seconds)</code> or <code>self::fromSeconds(...)</code> instead and both subclass calls collapse back to <code>Duration</code>: the factory silently returns the wrong type and the clamp never runs. The <code>static</code> return type carries the same promise into the type system, so <code>Timeout::fromMinutes()</code> is typed as <code>Timeout</code> without a narrowing check at the call site.</p>
           <p class="asked"><b>Asked as</b> — “How do you do constructor overloading in PHP?” You don’t. You give the constructor restricted visibility and add named static factories — <code>fromString()</code>, <code>fromArray()</code>, <code>zero()</code> — which is also where validation and normalisation belong.</p>
-          <div class="note"><b>Statics are global state.</b> They bypass DI, are hard to substitute in tests, and make dependencies invisible in the signature. Acceptable for pure functions and named constructors; a smell for anything touching I/O.</div>
+          <div class="note"><b>Statics are global state.</b> They bypass DI (dependency injection), are hard to substitute in tests, and make dependencies invisible in the signature. Acceptable for pure functions and named constructors; a smell for anything touching I/O.</div>
           <details class="quiz" id="quiz-static"
             data-score="Answered {answered} of {total} · {correct} correct"
             data-score-empty="Not started.">
@@ -1040,7 +1040,7 @@ OrderStatus::Paid->value;        // 'paid'</code></pre>
 
         <article class="topic" id="types">
           <h3>The type system, variance, <code>never</code></h3>
-          <p>Nullable (<code>?T</code>), union (<code>A|B</code>), intersection (<code>A&amp;B</code>, PHP 8.1), plus the special types <code>void</code>, <code>never</code>, <code>static</code>, <code>self</code>, <code>mixed</code>, <code>iterable</code>. PHP 8.2 adds DNF types: <code>(A&amp;B)|null</code>.</p>
+          <p>Nullable (<code>?T</code>), union (<code>A|B</code>), intersection (<code>A&amp;B</code>, PHP 8.1), plus the special types <code>void</code>, <code>never</code>, <code>static</code>, <code>self</code>, <code>mixed</code>, <code>iterable</code>. PHP 8.2 adds DNF (disjunctive normal form) types: <code>(A&amp;B)|null</code>.</p>
           <pre class="code"><code class="language-php">declare(strict_types=1);
 
 function shutdown(string $reason): never   // never returns: throws or exits
@@ -1427,7 +1427,7 @@ Closure::bind($fn, $obj, Account::class);      // rebind $this and scope</code><
 
         <article class="topic" id="exceptions">
           <h3>Exception hierarchy</h3>
-          <p>Everything catchable implements <code>Throwable</code>. Below it sit two branches: <code>Error</code> (engine-level: <code>TypeError</code>, <code>ValueError</code>, <code>ArgumentCountError</code>, <code>DivisionByZeroError</code>) and <code>Exception</code> (application-level, with <code>RuntimeException</code> and <code>LogicException</code> as the SPL roots).</p>
+          <p>Everything catchable implements <code>Throwable</code>. Below it sit two branches: <code>Error</code> (engine-level: <code>TypeError</code>, <code>ValueError</code>, <code>ArgumentCountError</code>, <code>DivisionByZeroError</code>) and <code>Exception</code> (application-level, with <code>RuntimeException</code> and <code>LogicException</code> as the SPL (Standard PHP Library) roots).</p>
           <pre class="code"><code class="language-php">final class PaymentDeclined extends RuntimeException
 {
     public function __construct(
@@ -1669,7 +1669,7 @@ foreach (readRows('export.csv') as $row) { /* … */ }</code></pre>
 
         <article class="topic" id="attributes">
           <h3>Attributes &amp; reflection</h3>
-          <p>Attributes (PHP 8) are structured metadata compiled into the class, read back with reflection — the mechanism behind modern routing, ORM mapping and DI autowiring.</p>
+          <p>Attributes (PHP 8) are structured metadata compiled into the class, read back with reflection — the mechanism behind modern routing, ORM (object-relational mapper) mapping and DI autowiring.</p>
           <pre class="code"><code class="language-php">#[Attribute(Attribute::TARGET_METHOD)]
 final class Route
 {
@@ -1748,7 +1748,7 @@ foreach ($rc-&gt;getMethods() as $m) {
           <ul class="tight">
             <li><code>==</code> — same class <em>and</em> all properties loosely equal.</li>
             <li><code>===</code> — the very same instance.</li>
-            <li><code>spl_object_id()</code> / <code>spl_object_hash()</code> — stable identity for the object’s lifetime (ids are reused after GC).</li>
+            <li><code>spl_object_id()</code> / <code>spl_object_hash()</code> — stable identity for the object’s lifetime (ids are reused after GC (garbage collection)).</li>
             <li>Objects are passed by <b>handle</b>, not by reference and not deep-copied: the callee can mutate the same object, but reassigning <code>$param</code> does not affect the caller’s variable.</li>
           </ul>
           <pre class="code"><code class="language-php">$a = new Money(100);
@@ -1884,7 +1884,7 @@ final class HydrationCache
         $this-&gt;meta[$entity] = $data;     // no leak: drop $entity and this entry goes too
     }
 }</code></pre>
-          <div class="note"><b>Where this actually bites.</b> In classic request-per-process PHP (mod_php, PHP-FPM) the whole arena is torn down at request end, so leaks rarely surface. In <b>long-running processes</b> — queue workers, Swoole, RoadRunner, FrankenPHP, a daemon consuming a stream — the same cycle accumulates until <code>memory_limit</code> kills the worker. That is why Laravel Horizon and Symfony Messenger restart workers after N jobs.</div>
+          <div class="note"><b>Where this actually bites.</b> In classic request-per-process PHP (mod_php, PHP-FPM (FastCGI Process Manager)) the whole arena is torn down at request end, so leaks rarely surface. In <b>long-running processes</b> — queue workers, Swoole, RoadRunner, FrankenPHP, a daemon consuming a stream — the same cycle accumulates until <code>memory_limit</code> kills the worker. That is why Laravel Horizon and Symfony Messenger restart workers after N jobs.</div>
           <p class="asked"><b>Asked as</b> — “How does PHP manage memory?” The full answer in three beats: refcounting frees eagerly and deterministically; a mark-and-sweep collector handles reference cycles only; and <code>WeakReference</code>/<code>WeakMap</code> let you avoid creating cycles in the first place. Mentioning copy-on-write (arrays and strings share storage until written to, which is why passing a big array is cheap) usually ends the question.</p>
           <details class="quiz" id="quiz-gc"
             data-score="Answered {answered} of {total} · {correct} correct"
@@ -2186,8 +2186,8 @@ final class CachingUserRepository implements UserRepository
                 <li>One class = one table; instance = one row</li>
                 <li><code>$user-&gt;save()</code>, <code>User::find(1)</code></li>
                 <li>Eloquent (Laravel), Yii, CakePHP, Rails</li>
-                <li>Fast to build, reads well for CRUD</li>
-                <li>Model carries domain <em>and</em> persistence — an SRP violation by design</li>
+                <li>Fast to build, reads well for CRUD (create, read, update, delete)</li>
+                <li>Model carries domain <em>and</em> persistence — an SRP (Single Responsibility Principle) violation by design</li>
                 <li>Unit tests need a database or heavy mocking</li>
                 <li>Domain shape is dragged toward the schema</li>
               </ul>
@@ -2276,7 +2276,7 @@ final class User extends ActiveRecord
 {
     protected static string $table = 'users';
 }</code></pre>
-          <div class="note"><b>The failure mode to name.</b> Active Record’s N+1 query problem: looping over records and touching a relation inside the loop fires one query per row. The fix is eager loading (<code>User::with('orders')</code> in Eloquent, a <code>JOIN FETCH</code> DQL in Doctrine). Interviewers ask this constantly, and it is the same trap in both patterns — Data Mapper just makes the lazy-loading proxy more visible.</div>
+          <div class="note"><b>The failure mode to name.</b> Active Record’s N+1 query problem: looping over records and touching a relation inside the loop fires one query per row. The fix is eager loading (<code>User::with('orders')</code> in Eloquent, a <code>JOIN FETCH</code> DQL (Doctrine Query Language) in Doctrine). Interviewers ask this constantly, and it is the same trap in both patterns — Data Mapper just makes the lazy-loading proxy more visible.</div>
           <p class="asked"><b>Asked as</b> — “Which would you choose?” Active Record for CRUD-shaped applications and small teams where speed of delivery wins. Data Mapper when the domain has real behaviour, invariants and a schema that does not mirror it — or when you want your business logic testable without a database. The senior version of the answer names the cost you accept either way rather than declaring one universally better.</p>
           <details class="quiz" id="quiz-active-record"
             data-score="Answered {answered} of {total} · {correct} correct"
@@ -2473,7 +2473,7 @@ final class ByDueDate extends SplMinHeap
                 <tr><td class="num">10</td><td class="psr-title">Security Reporting Process</td><td><span class="pill dead">Abandoned</span></td><td>—</td></tr>
                 <tr><td class="num">11</td><td class="psr-title">Container Interface</td><td><span class="pill ok">Accepted</span></td><td><code>get()</code> / <code>has()</code> for DI containers</td></tr>
                 <tr><td class="num">12</td><td class="psr-title">Extended Coding Style Guide</td><td><span class="pill ok">Accepted</span></td><td>PSR-2 modernised; now extended by PER-CS</td></tr>
-                <tr><td class="num">13</td><td class="psr-title">Hypermedia Links</td><td><span class="pill ok">Accepted</span></td><td>Link objects for HAL/JSON-API style APIs</td></tr>
+                <tr><td class="num">13</td><td class="psr-title">Hypermedia Links</td><td><span class="pill ok">Accepted</span></td><td>Link objects for HAL (Hypertext Application Language)/JSON-API style APIs</td></tr>
                 <tr><td class="num">14</td><td class="psr-title">Event Dispatcher</td><td><span class="pill ok">Accepted</span></td><td>Dispatcher + listener provider</td></tr>
                 <tr><td class="num">15</td><td class="psr-title">HTTP Handlers</td><td><span class="pill ok">Accepted</span></td><td>Middleware &amp; request handlers</td></tr>
                 <tr><td class="num">16</td><td class="psr-title">Simple Cache</td><td><span class="pill ok">Accepted</span></td><td>get/set/delete key-value cache</td></tr>
@@ -2539,7 +2539,7 @@ final class ByDueDate extends SplMinHeap
 
         <article class="topic" id="psr-style">
           <h3>PSR-1, PSR-12 and PER Coding Style</h3>
-          <p><b>PSR-1 (Basic)</b> — files use <code>&lt;?php</code> or <code>&lt;?=</code> only, UTF-8 without BOM; a file either <em>declares</em> symbols or <em>has side effects</em>, never both; class names in <code>StudlyCaps</code>, constants in <code>UPPER_SNAKE</code>, methods in <code>camelCase</code>.</p>
+          <p><b>PSR-1 (Basic)</b> — files use <code>&lt;?php</code> or <code>&lt;?=</code> only, UTF-8 without BOM (byte order mark); a file either <em>declares</em> symbols or <em>has side effects</em>, never both; class names in <code>StudlyCaps</code>, constants in <code>UPPER_SNAKE</code>, methods in <code>camelCase</code>.</p>
           <p><b>PSR-12 (Extended)</b> — 4 spaces (never tabs), soft 120-column limit, one blank line after the namespace block and after the <code>use</code> block, braces on their own line for classes and methods but on the same line for control structures, visibility declared on every property, method and constant, <code>declare(strict_types=1)</code> placement fixed.</p>
           <p><b>PER Coding Style</b> — the FIG’s newer, versioned successor (currently <b>PER-CS 3.1</b>). It “extends, expands and replaces PSR-12” and covers syntax PSR-12 predates: enums, readonly, attributes, constructor promotion, first-class callables. PSR-12 remains formally accepted; new projects should target PER-CS.</p>
           <pre class="code"><code class="language-php">&lt;?php
@@ -2783,7 +2783,7 @@ final class PaymentProcessor
               <ul>
                 <li>One <code>CacheInterface</code></li>
                 <li><code>get/set/delete/has</code>, plus <code>*Multiple</code></li>
-                <li>Default value on miss, TTL per call</li>
+                <li>Default value on miss, TTL (time to live) per call</li>
                 <li>What you want 90% of the time</li>
               </ul>
             </div>
@@ -3275,7 +3275,7 @@ if (!password_verify($plain, $user-&gt;passwordHash)) {
 if (password_needs_rehash($user-&gt;passwordHash, PASSWORD_DEFAULT)) {
     $repo-&gt;updateHash($user, password_hash($plain, PASSWORD_DEFAULT));
 }</code></pre>
-          <p>The output already contains the salt and parameters, so there is no separate salt column. <code>password_verify()</code> is timing-safe; for anything you compare yourself — API keys, reset tokens, HMAC signatures — use <code>hash_equals()</code>, never <code>===</code>.</p>
+          <p>The output already contains the salt and parameters, so there is no separate salt column. <code>password_verify()</code> is timing-safe; for anything you compare yourself — API keys, reset tokens, HMAC (hash-based message authentication code) signatures — use <code>hash_equals()</code>, never <code>===</code>.</p>
           <pre class="code"><code class="language-php">$token = bin2hex(random_bytes(32));    // CSPRNG — suitable for secrets
 $n     = random_int(1, 100);           // CSPRNG integer
 
@@ -3346,8 +3346,8 @@ echo '&lt;a href="/search?q=' . rawurlencode($q) . '"&gt;';
 // Inside a &lt;script&gt; block — JSON, not htmlspecialchars
 echo '&lt;script&gt;const cfg = ' . json_encode($cfg, JSON_HEX_TAG | JSON_HEX_AMP
     | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_THROW_ON_ERROR) . ';&lt;/script&gt;';</code></pre>
-          <p>Always pass <code>ENT_QUOTES</code> (single quotes matter in attributes) and the charset. In practice a templating engine with auto-escaping — Twig, Blade — is the real answer, plus a Content-Security-Policy header so an injected script has nowhere to run. Note that <code>strip_tags()</code> is not an XSS defence; for user-supplied rich text use an allow-list sanitiser such as HTML Purifier.</p>
-          <p><b>CSRF</b> is a different attack: the browser sends the victim’s cookies to your site on a request the victim did not intend. Cookies alone cannot distinguish it, so you need a value the attacker’s page cannot read.</p>
+          <p>Always pass <code>ENT_QUOTES</code> (single quotes matter in attributes) and the charset. In practice a templating engine with auto-escaping — Twig, Blade — is the real answer, plus a Content-Security-Policy header so an injected script has nowhere to run. Note that <code>strip_tags()</code> is not an XSS (cross-site scripting) defence; for user-supplied rich text use an allow-list sanitiser such as HTML Purifier.</p>
+          <p><b>CSRF (cross-site request forgery)</b> is a different attack: the browser sends the victim’s cookies to your site on a request the victim did not intend. Cookies alone cannot distinguish it, so you need a value the attacker’s page cannot read.</p>
           <pre class="code"><code class="language-php">// Issue once per session
 $_SESSION['csrf'] ??= bin2hex(random_bytes(32));
 

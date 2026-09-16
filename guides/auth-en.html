@@ -81,7 +81,7 @@
           <h2>Foundations</h2>
           <span class="count">4 topics</span>
         </header>
-        <p class="part-intro">Every token question eventually reduces to two older ones: where does the secret live, and what happens when it leaks. Start here and the JWT debate answers itself.</p>
+        <p class="part-intro">Every token question eventually reduces to two older ones: where does the secret live, and what happens when it leaks. Start here and the JWT (JSON Web Token) debate answers itself.</p>
 
         <article class="topic" id="authn-authz">
           <h3>Authentication, authorization, and the third one</h3>
@@ -105,9 +105,9 @@
               </ul>
             </div>
           </div>
-          <p>The third one is <b>accounting</b> — the audit trail. If your answer to “who cancelled this order” is a <code>updated_at</code> column, you do not have one. Factors come in three kinds: something you know (password), something you have (a TOTP device, a passkey, a hardware key), something you are (biometric). MFA means factors from different kinds; a password plus a security question is one factor twice.</p>
+          <p>The third one is <b>accounting</b> — the audit trail. If your answer to “who cancelled this order” is a <code>updated_at</code> column, you do not have one. Factors come in three kinds: something you know (password), something you have (a TOTP (time-based one-time password) device, a passkey, a hardware key), something you are (biometric). MFA (multi-factor authentication) means factors from different kinds; a password plus a security question is one factor twice.</p>
           <div class="note"><b>Where authorization goes wrong.</b> Authentication is a boundary concern and belongs in middleware. Authorization is a domain concern and belongs where the resource is loaded — the middleware that checked “is a logged-in user” cannot know whether <em>this</em> user owns <em>that</em> order. Splitting them across those two places is the single most useful structural idea in this guide.</div>
-          <p class="asked"><b>Asked as</b> — “What is the difference between 401 and 403?” Then, immediately: “Where in your application do each of those get decided?” The second question is the real one — a candidate who puts both in the same middleware layer has usually shipped an IDOR.</p>
+          <p class="asked"><b>Asked as</b> — “What is the difference between 401 and 403?” Then, immediately: “Where in your application do each of those get decided?” The second question is the real one — a candidate who puts both in the same middleware layer has usually shipped an IDOR (Insecure Direct Object Reference).</p>
           <details class="quiz" id="quiz-authn-authz"
             data-score="Answered {answered} of {total} · {correct} correct"
             data-score-empty="Not started.">
@@ -315,7 +315,7 @@ $_SESSION['last_seen'] = time();</code></pre>
             <table>
               <thead><tr><th>Attribute</th><th>What it buys</th></tr></thead>
               <tbody>
-                <tr><td><code>HttpOnly</code></td><td>JavaScript cannot read it — turns a full account takeover via XSS into a smaller problem</td></tr>
+                <tr><td><code>HttpOnly</code></td><td>JavaScript cannot read it — turns a full account takeover via XSS (cross-site scripting) into a smaller problem</td></tr>
                 <tr><td><code>Secure</code></td><td>HTTPS only. Without it, one plaintext request leaks the session</td></tr>
                 <tr><td><code>SameSite=Lax</code></td><td>Sent on top-level navigations, not on cross-site subresource requests or forms. The browser default</td></tr>
                 <tr><td><code>SameSite=Strict</code></td><td>Never sent cross-site — safest, but a user following a link from email arrives logged out</td></tr>
@@ -338,7 +338,7 @@ ini_set('session.cookie_httponly', '1');
 ini_set('session.use_only_cookies', '1');   // never accept the id from the URL
 session_name('__Host-sid');
 session_start();</code></pre>
-          <p><code>SameSite=Lax</code> removes most classic CSRF, but it is a defence in depth, not a replacement: it does not protect against <code>GET</code>-triggered state changes, it does not apply to same-site requests from a compromised subdomain, and older clients ignore it. Keep synchroniser tokens (or the double-submit pattern) on state-changing forms, and never make a <code>GET</code> mutate anything.</p>
+          <p><code>SameSite=Lax</code> removes most classic CSRF (cross-site request forgery), but it is a defence in depth, not a replacement: it does not protect against <code>GET</code>-triggered state changes, it does not apply to same-site requests from a compromised subdomain, and older clients ignore it. Keep synchroniser tokens (or the double-submit pattern) on state-changing forms, and never make a <code>GET</code> mutate anything.</p>
           <p class="asked"><b>Asked as</b> — “Does <code>SameSite</code> mean we can drop CSRF tokens?” No — narrower attack surface, same requirement. Explaining <em>why</em> (subdomains, legacy clients, non-browser clients) is the answer; “no, because best practice” is not.</p>
           <details class="quiz" id="quiz-cookies"
             data-score="Answered {answered} of {total} · {correct} correct"
@@ -513,7 +513,7 @@ if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked();
               <ul>
                 <li>Private key signs, public key verifies</li>
                 <li>Correct across services and third parties</li>
-                <li>Public keys published at a JWKS endpoint, selected by <code>kid</code> — which is what makes rotation possible</li>
+                <li>Public keys published at a JWKS (JSON Web Key Set) endpoint, selected by <code>kid</code> — which is what makes rotation possible</li>
               </ul>
             </div>
           </div>
@@ -575,7 +575,7 @@ if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked();
               <thead><tr><th>Attack</th><th>Mechanism</th><th>Defence</th></tr></thead>
               <tbody>
                 <tr><td><code>alg: none</code></td><td>Attacker strips the signature; a naive library accepts an unsigned token</td><td>Never let the token choose the algorithm — pass the expected one explicitly</td></tr>
-                <tr><td>Algorithm confusion</td><td>Token switched from RS256 to HS256, signed with the <b>public</b> key as the HMAC secret</td><td>Pin the algorithm per key; reject any mismatch</td></tr>
+                <tr><td>Algorithm confusion</td><td>Token switched from RS256 to HS256, signed with the <b>public</b> key as the HMAC (hash-based message authentication code) secret</td><td>Pin the algorithm per key; reject any mismatch</td></tr>
                 <tr><td>Unverified decode</td><td>Code reads claims before (or instead of) verifying the signature</td><td>Verify first, always. Never trust <code>kid</code> or <code>iss</code> from an unverified token</td></tr>
                 <tr><td><code>kid</code> injection</td><td><code>kid</code> used as a file path or SQL value → traversal or injection</td><td>Treat <code>kid</code> as an opaque lookup key in a fixed key set</td></tr>
                 <tr><td><code>jku</code> / <code>x5u</code> abuse</td><td>Header points at an attacker-controlled key URL</td><td>Ignore these headers; hardcode or allowlist the JWKS URI</td></tr>
@@ -732,7 +732,7 @@ if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked();
                 <tr><td><code>sessionStorage</code></td><td>Same exposure, shorter life</td><td>Immune</td><td>Marginally better; same class of failure</td></tr>
                 <tr><td>JS-readable cookie</td><td>Fully exposed</td><td>Vulnerable</td><td>Worst of both</td></tr>
                 <tr><td><code>HttpOnly</code> + <code>Secure</code> + <code>SameSite</code> cookie</td><td>Not readable by script</td><td>Needs a CSRF token / <code>SameSite</code></td><td><b>Default choice</b> for first-party web clients</td></tr>
-                <tr><td>In memory only</td><td>Gone on reload; refresh via an <code>HttpOnly</code> cookie</td><td>Immune</td><td>Best for SPAs that can tolerate a refresh call on boot</td></tr>
+                <tr><td>In memory only</td><td>Gone on reload; refresh via an <code>HttpOnly</code> cookie</td><td>Immune</td><td>Best for SPAs (single-page applications) that can tolerate a refresh call on boot</td></tr>
               </tbody>
             </table>
           </div>
@@ -811,7 +811,7 @@ if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked();
           </div>
           <p>The sentence to have ready: <em>OAuth exists so a user can grant an application limited access to their data without handing over their password.</em> Everything else — scopes, consent screens, redirect URIs — follows from that. Clients are <b>confidential</b> (a server that can keep a secret) or <b>public</b> (SPA, mobile app, anything shipped to a user's device — it cannot keep a secret, whatever the tutorial says).</p>
           <p>Scopes are coarse delegation labels (<code>orders:read</code>), not your permission model. The authorization server says “this client may act on the user's behalf within these scopes”; your API still decides whether <em>that user</em> may touch <em>that record</em>. Conflating the two is how APIs end up with a valid token reading someone else's data.</p>
-          <p class="asked"><b>Asked as</b> — “Explain OAuth to a junior.” Use the valet key analogy — a key that starts the car but does not open the boot — then immediately name the trap: OAuth answers “what may this app do”, not “who is this user”. That is what OIDC adds.</p>
+          <p class="asked"><b>Asked as</b> — “Explain OAuth to a junior.” Use the valet key analogy — a key that starts the car but does not open the boot — then immediately name the trap: OAuth answers “what may this app do”, not “who is this user”. That is what OIDC (OpenID Connect) adds.</p>
           <details class="quiz" id="quiz-oauth-roles"
             data-score="Answered {answered} of {total} · {correct} correct"
             data-score-empty="Not started.">
@@ -864,7 +864,7 @@ if ($this-&gt;revoked-&gt;contains($claims-&gt;jti)) { throw new TokenRevoked();
 
         <article class="topic" id="pkce">
           <h3>Authorization Code with PKCE — the flow to know</h3>
-          <p>Under OAuth 2.1 this is the flow for essentially every client type, public or confidential. PKCE (RFC 7636) stops an attacker who intercepts the authorization code from exchanging it.</p>
+          <p>Under OAuth 2.1 this is the flow for essentially every client type, public or confidential. PKCE (Proof Key for Code Exchange) (RFC 7636) stops an attacker who intercepts the authorization code from exchanging it.</p>
           <pre class="code"><code class="language-php">// 1. Client generates a high-entropy verifier and its challenge.
 $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
 $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
@@ -961,7 +961,7 @@ $tokens = $http-&gt;post('https://auth.example.com/token', ['form_params' =&gt; 
               </tbody>
             </table>
           </div>
-          <p>OAuth 2.1 is consolidation, not a redesign: PKCE required for all clients using the code grant, implicit and ROPC gone, refresh tokens must be sender-constrained or rotated, and redirect URIs must match exactly (no wildcards, no prefix matching — an open redirect on your own domain becomes a token theft otherwise).</p>
+          <p>OAuth 2.1 is consolidation, not a redesign: PKCE required for all clients using the code grant, implicit and ROPC (Resource Owner Password Credentials) gone, refresh tokens must be sender-constrained or rotated, and redirect URIs must match exactly (no wildcards, no prefix matching — an open redirect on your own domain becomes a token theft otherwise).</p>
           <p class="asked"><b>Asked as</b> — “Why was the implicit flow deprecated?” The access token arrives in the URL fragment: browser history, referrer headers, any script on the page. PKCE gave public clients a safe way to use the code flow, so implicit had no remaining justification.</p>
           <details class="quiz" id="quiz-other-flows"
             data-score="Answered {answered} of {total} · {correct} correct"
@@ -1101,15 +1101,15 @@ $tokens = $http-&gt;post('https://auth.example.com/token', ['form_params' =&gt; 
             <table>
               <thead><tr><th>Model</th><th>Decides on</th><th>Fits</th><th>Breaks when</th></tr></thead>
               <tbody>
-                <tr><td>RBAC</td><td>Roles held by the subject</td><td>Small, stable org structures</td><td>Role explosion: <code>editor_hu_finance_readonly</code></td></tr>
-                <tr><td>ABAC</td><td>Attributes of subject, resource, action, environment</td><td>Rules like “same department, business hours, amount &lt; 1M”</td><td>Policies become hard to reason about and to test</td></tr>
-                <tr><td>ReBAC</td><td>The relationship graph between subject and object</td><td>Sharing, hierarchies, “inherited from the parent folder”</td><td>Needs a real engine (Zanzibar-style) and careful cache invalidation</td></tr>
-                <tr><td>ACL</td><td>Per-object list of who may do what</td><td>Few objects, explicit grants</td><td>Does not scale to millions of rows</td></tr>
+                <tr><td>RBAC (role-based access control)</td><td>Roles held by the subject</td><td>Small, stable org structures</td><td>Role explosion: <code>editor_hu_finance_readonly</code></td></tr>
+                <tr><td>ABAC (attribute-based access control)</td><td>Attributes of subject, resource, action, environment</td><td>Rules like “same department, business hours, amount &lt; 1M”</td><td>Policies become hard to reason about and to test</td></tr>
+                <tr><td>ReBAC (relationship-based access control)</td><td>The relationship graph between subject and object</td><td>Sharing, hierarchies, “inherited from the parent folder”</td><td>Needs a real engine (Zanzibar-style) and careful cache invalidation</td></tr>
+                <tr><td>ACL (access control list)</td><td>Per-object list of who may do what</td><td>Few objects, explicit grants</td><td>Does not scale to millions of rows</td></tr>
               </tbody>
             </table>
           </div>
           <p>The practical advice that reads as experience: check <b>permissions</b> in code, not roles. <code>$user-&gt;can('order.refund')</code> survives the day someone invents a new role; <code>$user-&gt;hasRole('admin')</code> scattered across two hundred call sites does not. Roles become nothing more than named bundles of permissions, editable without a deploy. Most systems end up RBAC with a few attribute conditions bolted on — that is a perfectly good answer, as long as you say it deliberately.</p>
-          <p class="asked"><b>Asked as</b> — “How would you design permissions for a multi-tenant SaaS?” Permissions as the unit of checking, roles as bundles, scoped per tenant membership rather than globally on the user, plus deny-by-default. Mention that a user can belong to several tenants with different roles — that is the requirement people forget until it is expensive.</p>
+          <p class="asked"><b>Asked as</b> — “How would you design permissions for a multi-tenant SaaS (software as a service)?” Permissions as the unit of checking, roles as bundles, scoped per tenant membership rather than globally on the user, plus deny-by-default. Mention that a user can belong to several tenants with different roles — that is the requirement people forget until it is expensive.</p>
           <details class="quiz" id="quiz-models"
             data-score="Answered {answered} of {total} · {correct} correct"
             data-score-empty="Not started.">
@@ -1265,7 +1265,7 @@ final class Gate
 
         <article class="topic" id="idor">
           <h3>IDOR, BOLA, and multi-tenant leakage</h3>
-          <p>The most common serious API vulnerability is not exotic: it is an endpoint that authenticates the caller and then loads a record by id without checking ownership. OWASP calls it Broken Object Level Authorization; older material calls it IDOR.</p>
+          <p>The most common serious API vulnerability is not exotic: it is an endpoint that authenticates the caller and then loads a record by id without checking ownership. OWASP (Open Worldwide Application Security Project) calls it Broken Object Level Authorization; older material calls it IDOR.</p>
           <pre class="code"><code class="language-php">// Vulnerable: authenticated, but not authorized. Changing the id reads someone else's order.
 public function show(int $id): Response
 {
@@ -1283,7 +1283,7 @@ public function show(int $id): Response
 
     return $this-&gt;json($order);
 }</code></pre>
-          <p>The structural fix is to make the unsafe version hard to write: a repository whose finders <em>require</em> a tenant, a global query scope applied at the ORM level, or separate connections/schemas per tenant. Sequential integer ids make enumeration trivial, so UUIDv7 or a prefixed opaque id (<code>ord_8127</code>) raises the cost — that is defence in depth, not authorization; a guessed id must still be refused.</p>
+          <p>The structural fix is to make the unsafe version hard to write: a repository whose finders <em>require</em> a tenant, a global query scope applied at the ORM (object-relational mapper) level, or separate connections/schemas per tenant. Sequential integer ids make enumeration trivial, so UUIDv7 or a prefixed opaque id (<code>ord_8127</code>) raises the cost — that is defence in depth, not authorization; a guessed id must still be refused.</p>
           <div class="note"><b>404 or 403?</b> If confirming that a record exists is itself a leak — and in multi-tenant systems it usually is — return <code>404</code>. Reserve <code>403</code> for resources the caller can legitimately know about but may not act on. Be consistent, because the difference between the two responses is itself an oracle.</div>
           <p class="asked"><b>Asked as</b> — “A user changes the id in the URL and sees another customer's invoice. What went wrong and how do you prevent a repeat?” Object-level authorization was missing. Prevention is structural — tenant-scoped repositories plus a policy check — followed by a test that asserts cross-tenant access fails for every endpoint.</p>
           <details class="quiz" id="quiz-idor"
@@ -1350,7 +1350,7 @@ public function show(int $id): Response
             <div><dt><code>hash_equals</code></dt><dd>Constant-time string comparison. Use it for tokens, HMACs and CSRF values — <code>===</code> leaks timing.</dd></div>
             <div><dt><code>random_bytes</code>, not <code>rand</code></dt><dd><code>rand</code>/<code>mt_rand</code>/<code>uniqid</code> are not cryptographically secure. <code>random_int</code> and <code>random_bytes</code> are.</dd></div>
             <div><dt>Store reset tokens hashed</dt><dd>A leaked reset-token table is a leaked account table otherwise. Single use, short expiry.</dd></div>
-            <div><dt>Bearer means bearer</dt><dd>Whoever holds the token is the user. Nothing binds it to a client unless you add DPoP or mTLS.</dd></div>
+            <div><dt>Bearer means bearer</dt><dd>Whoever holds the token is the user. Nothing binds it to a client unless you add DPoP (Demonstrating Proof-of-Possession) or mTLS.</dd></div>
             <div><dt>Log out = server-side invalidation</dt><dd>Clearing the cookie only affects a cooperative client.</dd></div>
             <div><dt>Rotate on privilege change</dt><dd>New session id at login, at password change, at role elevation.</dd></div>
             <div><dt>Enumeration</dt><dd>“No such email” on the login and signup forms tells an attacker who has an account. Same message, same timing.</dd></div>
