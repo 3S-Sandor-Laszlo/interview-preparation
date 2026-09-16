@@ -1528,6 +1528,27 @@ final class Basket implements IteratorAggregate, Countable
 
 foreach ($basket as $item) { /* … */ }
 count($basket);</code></pre>
+
+          <h4 style="margin:1.3rem 0 .4rem;font-size:.95rem">A másik fele: az SPL készen kapott iterátorai</h4>
+          <p>A fenti táblázat azt mutatja, amit te <em>implementálsz</em>; az SPL olyan osztályokat is hoz, amelyek ezt már megtették. Fájlrendszerhez a <code>GlobIterator</code> az ismeretre érdemes: egy lusta <code>glob()</code>, ami stringek tömbje helyett <code>SplFileInfo</code> objektumokat ad, és mivel <code>Countable</code>, a <code>count()</code>-ot is megválaszolja anélkül, hogy azt a tömböt felépítené.</p>
+          <pre class="code"><code class="language-php">$logs = new GlobIterator(__DIR__ . '/var/log/*.log');
+
+count($logs);   // 4 — Countable, és semmilyen tömb nem épült fel
+
+// A szűrés kompozíció: csomagold be az iterátort, ne ciklus + if legyen
+$stale = new CallbackFilterIterator(
+    $logs,
+    fn (SplFileInfo $f): bool =&gt; $f-&gt;getSize() &gt; 10_000_000
+                              &amp;&amp; $f-&gt;getMTime() &lt; strtotime('-30 days')
+);
+
+foreach ($stale as $path =&gt; $file) {
+    printf("%s  %d MB\n", $file-&gt;getFilename(), round($file-&gt;getSize() / 1_048_576));
+}
+// app-old.log  30 MB
+// app.log      12 MB</code></pre>
+          <p>A <code>glob()</code>-hoz képest az a nyereség, hogy minden elem <code>SplFileInfo</code>-ként érkezik, így a méret, a módosítási idő és a típus már kéznél van — nem kell egy második kör <code>filesize()</code>/<code>is_file()</code> hívás az elérési utak alapján. És mivel valódi <code>Iterator</code>, a többi SPL dekorátorral is kombinálható: <code>CallbackFilterIterator</code> a szűréshez, <code>LimitIterator</code> a lapozáshoz, <code>RecursiveIteratorIterator</code> egész fákhoz. A kulcsok teljes elérési utak, tehát a fenti <code>$path</code> pontosan az, amit a <code>glob()</code>-tól is visszakaptál volna.</p>
+          <p class="asked"><b>Így kérdezik</b> — „Mikor választanád a <code>GlobIterator</code>-t a <code>glob()</code> helyett?” Amikor a könyvtár elég nagy ahhoz, hogy ne akard az egész találati listát a memóriában tartani, vagy amikor úgyis kell a fájl metaadata — az <code>SplFileInfo</code> ingyen van, egy <code>filesize()</code> elérési utanként nem.</p>
           <details class="quiz" id="quiz-spl"
             data-score="Megválaszolva: {answered} / {total} · {correct} helyes"
             data-score-empty="Még nincs elkezdve.">

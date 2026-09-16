@@ -1528,6 +1528,27 @@ final class Basket implements IteratorAggregate, Countable
 
 foreach ($basket as $item) { /* … */ }
 count($basket);</code></pre>
+
+          <h4 style="margin:1.3rem 0 .4rem;font-size:.95rem">The other half: SPL’s ready-made iterators</h4>
+          <p>The table above is what you <em>implement</em>; SPL also ships classes that already implement it. <code>GlobIterator</code> is the one worth knowing for filesystem work — a lazy <code>glob()</code> that yields <code>SplFileInfo</code> objects instead of an array of strings, and, because it implements <code>Countable</code>, answers <code>count()</code> without materialising that array.</p>
+          <pre class="code"><code class="language-php">$logs = new GlobIterator(__DIR__ . '/var/log/*.log');
+
+count($logs);   // 4 — Countable, and no array was built
+
+// Filtering is composition: wrap the iterator, don't loop-and-if
+$stale = new CallbackFilterIterator(
+    $logs,
+    fn (SplFileInfo $f): bool =&gt; $f-&gt;getSize() &gt; 10_000_000
+                              &amp;&amp; $f-&gt;getMTime() &lt; strtotime('-30 days')
+);
+
+foreach ($stale as $path =&gt; $file) {
+    printf("%s  %d MB\n", $file-&gt;getFilename(), round($file-&gt;getSize() / 1_048_576));
+}
+// app-old.log  30 MB
+// app.log      12 MB</code></pre>
+          <p>The payoff over <code>glob()</code> is that each entry arrives as an <code>SplFileInfo</code>, so size, mtime and type are already in hand — no second pass of <code>filesize()</code>/<code>is_file()</code> calls keyed by path string. And because it is a real <code>Iterator</code>, it composes with the rest of the SPL decorators: <code>CallbackFilterIterator</code> to filter, <code>LimitIterator</code> to page, <code>RecursiveIteratorIterator</code> for whole trees. The keys are full pathnames, so <code>$path</code> above is the thing you would have got back from <code>glob()</code>.</p>
+          <p class="asked"><b>Asked as</b> — “When would you reach for <code>GlobIterator</code> over <code>glob()</code>?” When the directory is large enough that you do not want the whole match list in memory, or when you need file metadata anyway — the <code>SplFileInfo</code> is free, a <code>filesize()</code> per path is not.</p>
           <details class="quiz" id="quiz-spl"
             data-score="Answered {answered} of {total} · {correct} correct"
             data-score-empty="Not started.">
