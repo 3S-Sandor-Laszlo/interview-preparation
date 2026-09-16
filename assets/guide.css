@@ -1,12 +1,25 @@
 /* guide.css — layout and components used by the guide pages only. */
 
 /* ---------- top bar ---------- */
+/* The bar stays put while the guide scrolls. It lives inside .wrap, so it is
+   pulled out to the wrap gutters to keep its background edge-to-edge; guide.js
+   measures the rendered height into --topbar-h (the bar wraps to two rows on
+   narrow screens, and at a different width per language), and every scroll
+   offset below is expressed in terms of it. The value here is the no-JS
+   fallback. */
+:root { --topbar-h: 3.4rem; }
+
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.35rem 1.4rem;
-  padding: 1.1rem 0 0.8rem;
+  margin: 0 calc(-1 * var(--wrap-pad));
+  padding: 1.1rem var(--wrap-pad) 0.8rem;
+  background: var(--paper);
   border-bottom: 1px solid var(--line-soft);
   font-size: 0.85rem;
 }
@@ -51,8 +64,8 @@
 
 nav.toc {
   position: sticky;
-  top: 1.2rem;
-  max-height: calc(100vh - 2.4rem);
+  top: calc(var(--topbar-h) + 1.2rem);
+  max-height: calc(100vh - var(--topbar-h) - 2.4rem);
   overflow-y: auto;
   font-size: 0.86rem;
   padding-right: 0.4rem;
@@ -137,7 +150,6 @@ main { min-width: 0; }
   border-top: 1px solid var(--line-soft);
   padding-top: 1.3rem;
   margin-bottom: 2rem;
-  scroll-margin-top: 1rem;
 }
 .topic:first-of-type { border-top: none; padding-top: 0; }
 .topic > h3 {
@@ -149,6 +161,12 @@ main { min-width: 0; }
 .topic > h3 code { font-size: 0.94em; }
 .topic p { margin: 0 0 0.85rem; }
 .topic > p:first-of-type { margin-top: 0.3rem; }
+
+/* Everything linkable sits below the fixed bar when jumped to. */
+.part,
+.topic,
+.quiz,
+.quiz-q { scroll-margin-top: calc(var(--topbar-h) + 1rem); }
 
 .asked {
   display: block;
@@ -269,7 +287,6 @@ html[lang="hu"] { --quiz-answer-label: "ez a helyes"; }
   flex-direction: column;
   gap: 1.3rem;
 }
-.quiz-q { scroll-margin-top: 1rem; }
 .quiz-prompt { margin: 0 0 0.5rem; font-weight: 600; }
 .quiz-options {
   list-style: none;

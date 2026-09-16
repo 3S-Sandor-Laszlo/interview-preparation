@@ -1,5 +1,23 @@
 // guide.js - table-of-contents scrollspy and topic filter, shared by every guide page.
 (function () {
+  // --- sticky top bar ----------------------------------------------------
+  // The bar wraps to a second row on narrow screens, and does so at a different
+  // width in each language, so the offset the sticky TOC and every anchor jump
+  // depend on is measured rather than guessed. guide.css carries a static
+  // fallback for the no-JS case.
+  var topbar = document.querySelector('nav.topbar');
+  if (topbar) {
+    var measureTopbar = function () {
+      document.documentElement.style.setProperty('--topbar-h', topbar.offsetHeight + 'px');
+    };
+    measureTopbar();
+    if ('ResizeObserver' in window) {
+      new ResizeObserver(measureTopbar).observe(topbar);
+    } else {
+      window.addEventListener('resize', measureTopbar);
+    }
+  }
+
   // --- table of contents scrollspy -------------------------------------
   var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
   var byId = {};

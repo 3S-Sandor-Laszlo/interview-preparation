@@ -32,6 +32,7 @@
   --tok-cls:    #f2d9a0;
   --radius:     6px;
   --wrap:       1200px;
+  --wrap-pad:   clamp(1rem, 3vw, 2.5rem);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -95,7 +96,7 @@ img { max-width: 100%; }
 .wrap {
   max-width: var(--wrap);
   margin: 0 auto;
-  padding: 0 clamp(1rem, 3vw, 2.5rem) 6rem;
+  padding: 0 var(--wrap-pad) 6rem;
 }
 
 /* ---------- masthead ---------- */
